@@ -3,15 +3,7 @@ import json
 import logging
 import os
 
-# Прямой импорт асинхронного клиента для предотвращения ошибок импорта
-try:
-    from pytonapi import AsyncTonapi as TonapiClient
-except ImportError:
-    try:
-        from pytonapi.async_tonapi import AsyncTonapi as TonapiClient
-    except ImportError:
-        from pytonapi import Tonapi as TonapiClient
-
+from pytonapi import Tonapi
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import CommandStart, Command
 from aiogram.types import (
@@ -28,8 +20,8 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 bot = Bot(token=config.TELEGRAM_BOT_TOKEN)
 dp = Dispatcher()
 
-# Инициализация клиента
-tonapi = TonapiClient(api_key=config.TONAPI_KEY)
+# Инициализация клиента Tonapi
+tonapi = Tonapi(api_key=config.TONAPI_KEY)
 
 DB_FILE = "subscribers.json"
 processed_tx_hashes = set()
