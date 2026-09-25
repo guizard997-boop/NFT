@@ -1,3 +1,3 @@
-aiogram==3.4.1
-pytonapi==0.1.8
-aiohttp==3.9.3
+aiogram>=3.13.0
+pytonapi>=0.2.0
+aiohttp>=3.9.0
