@@ -1,8 +1,9 @@
+
 import asyncio
 import json
 import logging
 import os
-from pytonapi import AsyncTonapi
+from pytonapi import Tonapi  # Исправленный импорт
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import CommandStart, Command
 from aiogram.types import (
@@ -18,17 +19,14 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 
 bot = Bot(token=config.TELEGRAM_BOT_TOKEN)
 dp = Dispatcher()
-tonapi = AsyncTonapi(api_key=config.TONAPI_KEY)
+tonapi = Tonapi(api_key=config.TONAPI_KEY)  # Используем актуальный класс Tonapi
 
 DB_FILE = "subscribers.json"
 processed_tx_hashes = set()
 
 
-# ================= СЧИТЫВАНИЕ ПОДПИСЧИКОВ С УЧЕТОМ RAILWAY =================
-
 def load_subscribers() -> list[int]:
-    """Загружает список подписчиков из Railway (WHITELIST_IDS) или локального JSON."""
-    # Если в Railway заполнена переменная WHITELIST_IDS, приоритет отдается ей
+    """Загружает список подписчиков (приоритет у WHITELIST_IDS из Railway)."""
     if config.WHITELIST_IDS:
         return config.WHITELIST_IDS[:config.MAX_SUBSCRIBERS]
 
@@ -45,7 +43,7 @@ def load_subscribers() -> list[int]:
 
 
 def save_subscribers(subs: list[int]):
-    """Сохраняет список ID подписчиков в локальный JSON файл."""
+    """Сохраняет список ID подписчиков в локальный JSON."""
     try:
         with open(DB_FILE, "w", encoding="utf-8") as f:
             json.dump(subs, f, ensure_ascii=False, indent=2)
@@ -60,21 +58,18 @@ def is_admin(user_id: int) -> bool:
     return user_id == config.ADMIN_USER_ID
 
 
-# ================= НАСТРОЙКА КНОПКИ "МЕНЮ" =================
-
 async def setup_bot_commands():
+    """Регистрация кнопки 'Меню' в Telegram."""
     commands = [
         BotCommand(command="start", description="🚀 Запустить / Проверить подписку"),
-        BotCommand(command="help", description="❓ Справка по категориям"),
-        BotCommand(command="status", description="📊 Статус и ваш Telegram ID"),
+        BotCommand(command="help", description="❓ Справка по фильтрам"),
+        BotCommand(command="status", description="📊 Ваш Telegram ID и статус"),
         BotCommand(command="list", description="👥 Список пользователей (Админ)"),
         BotCommand(command="add", description="➕ Добавить пользователя (Админ)"),
         BotCommand(command="remove", description="➖ Удалить пользователя (Админ)"),
     ]
     await bot.set_my_commands(commands, scope=BotCommandScopeDefault())
 
-
-# ================= ОБРАБОТЧИКИ КОМАНД =================
 
 @dp.message(CommandStart())
 async def start_handler(message: types.Message):
@@ -93,7 +88,7 @@ async def start_handler(message: types.Message):
         await message.answer(
             f"👋 **Привет, {message.from_user.first_name}!**\n\n"
             f"Ваш Telegram ID: `{user_id}`\n"
-            f"Передайте этот ID администратору бота для активации доступа.",
+            f"Передайте этот ID администратору бота для добавления.",
             parse_mode="Markdown"
         )
 
@@ -110,7 +105,7 @@ async def help_handler(message: types.Message):
         "⚙️ **Управление (Админ):**\n"
         "• `/add <USER_ID>` — Добавить ID\n"
         "• `/remove <USER_ID>` — Удалить ID\n"
-        "• `/list` — Просмотреть список"
+        "• `/list` — Посмотреть список"
     )
     await message.answer(help_text, parse_mode="Markdown")
 
@@ -123,7 +118,7 @@ async def status_handler(message: types.Message):
     sub_flag = "Активна" if user_id in subs else "Отсутствует"
 
     status_text = (
-        f"🖥 **Статус бота (Railway):**\n\n"
+        f"🖥 **Статус бота:**\n\n"
         f"• **Ваш ID:** `{user_id}`\n"
         f"• **Подписка:** `{sub_flag}`\n"
         f"• **Права админа:** `{admin_flag}`\n"
@@ -185,8 +180,6 @@ async def list_subscribers(message: types.Message):
     subs_text = "\n".join([f"• `{uid}`" for uid in subs])
     await message.answer(f"📊 **Подписчики ({len(subs)}/{config.MAX_SUBSCRIBERS}):**\n\n{subs_text}", parse_mode="Markdown")
 
-
-# ================= МАКЕТ РАССЫЛКИ И ПАРСИНГ =================
 
 def categorize_nft(price_ton: float, attributes: dict) -> list[str]:
     categories = []
