@@ -1,24 +1,33 @@
 import os
 
-def _ids(v):
-    if not v:
+# Telegram Bot Token от @BotFather
+TELEGRAM_BOT_TOKEN = os.getenv("BOT_TOKEN", "ВАШ_BOT_TOKEN_ОТ_BOTFATHER")
+
+# Ключ от TonAPI (https://tonconsole.com)
+TONAPI_KEY = os.getenv("TONAPI_KEY", "ВАШ_TONAPI_KEY")
+
+# Главный контракт маркетплейса на TON
+MARKETPLACE_ADDRESS = os.getenv(
+    "MARKETPLACE_ADDRESS", 
+    "EQC2_MRKT_OR_GETGEMS_MARKETPLACE_ADDRESS"
+)
+
+# Чтение списков Telegram ID из Railway (передаются через запятую, например: 123456,789012)
+def parse_ids_from_env(env_name: str) -> list[int]:
+    raw_val = os.getenv(env_name, "")
+    if not raw_val:
         return []
-    v = str(v).strip().strip("[]")
-    return [int(x.strip()) for x in v.split(",") if x.strip().lstrip("-").isdigit()]
+    return [int(x.strip()) for x in raw_val.split(",") if x.strip().isdigit()]
 
-# Вшитые значения (можно переопределить через env)
-_DEFAULT_TOKEN = "8793921623:AAEl76MKZMDyoJGNTvXeqGdAwQ15So7MBgg"
-_DEFAULT_ADMINS = "6429739316,8298834738"
-_DEFAULT_WHITELIST = "6429739316,8298834738"
+# Список ID администраторов (из переменной ADMIN_IDS)
+ADMIN_IDS = parse_ids_from_env("ADMIN_IDS")
+ADMIN_USER_ID = ADMIN_IDS[0] if ADMIN_IDS else 123456789  # Главный админ
 
-class S:
-    def __init__(self):
-        self.bot_token = os.getenv("BOT_TOKEN", _DEFAULT_TOKEN)
-        self.admin_ids = _ids(os.getenv("ADMIN_IDS", _DEFAULT_ADMINS))
-        self.whitelist_ids = _ids(os.getenv("WHITELIST_IDS", _DEFAULT_WHITELIST))
-        self.poll_interval = int(os.getenv("POLL_INTERVAL", "20"))
-        self.max_age_seconds = int(os.getenv("MAX_AGE_SECONDS", "60"))
-        self.mrkt_token = os.getenv("MRKT_TOKEN", "").strip()
-        self.getgems_token = os.getenv("GETGEMS_TOKEN", "").strip()
+# Разрешенный список пользователей для рассылки (из переменной WHITELIST_IDS)
+WHITELIST_IDS = parse_ids_from_env("WHITELIST_IDS")
 
-settings = S()
+# Максимальный лимит пользователей
+MAX_SUBSCRIBERS = int(os.getenv("MAX_SUBSCRIBERS", "5"))
+
+# Интервал проверки
+CHECK_INTERVAL = int(os.getenv("CHECK_INTERVAL", "3"))
