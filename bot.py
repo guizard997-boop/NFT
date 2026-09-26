@@ -22,39 +22,35 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 bot = Bot(token=config.TELEGRAM_BOT_TOKEN)
 dp = Dispatcher()
 
-# Корректные Raw-адреса NFT-коллекций TON
+# Raw-адреса NFT-коллекций TON (Anonymous Numbers +888 и Telegram Usernames)
 COLLECTIONS_TO_MONITOR = [
-    "0:80d6be28577dd80041cd58d6e32bc417ed2adbd2d13b41dddfa485bc972e3a89",  # Anonymous Numbers (+888)
-    "0:08320b5da1e712392c5a2789bd079f8b3c9d77bbd51381373507d570eeed1d1d",  # Telegram Usernames
+    "0:80d6be28577dd80041cd58d6e32bc417ed2adbd2d13b41dddfa485bc972e3a89",
+    "0:08320b5da1e712392c5a2789bd079f8b3c9d77bbd51381373507d570eeed1d1d",
 ]
 
 DB_FILE = "subscribers.json"
 processed_event_ids = set()
 
 
-# --- Веб-сервер для Health Check хостинга ---
+# --- Health Check для хостинга ---
 async def health_check(request):
-    """Отвечает хостингу 200 OK, чтобы статус горел зеленым."""
     return web.Response(text="OK", status=200)
 
 async def start_health_server():
-    """Запускает служебный HTTP-порт."""
     app = web.Application()
     app.router.add_get("/", health_check)
     app.router.add_get("/health", health_check)
     runner = web.AppRunner(app)
     await runner.setup()
     
-    # Берет порт из переменных окружения хостинга или ставит 8080 по умолчанию
     port = int(os.environ.get("PORT", 8080))
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
-    logging.info(f"Health Check сервер успешно запущен на порту {port}")
+    logging.info(f"Health Check сервер работает на порту {port}")
 
 
-# --- Работа с БД подписчиков ---
+# --- Управление подписчиками ---
 def load_subscribers() -> list[int]:
-    """Загрузка списка подписчиков."""
     if config.WHITELIST_IDS:
         return config.WHITELIST_IDS[:config.MAX_SUBSCRIBERS]
 
@@ -71,7 +67,6 @@ def load_subscribers() -> list[int]:
 
 
 def save_subscribers(subs: list[int]):
-    """Сохранение подписчиков в файл."""
     try:
         with open(DB_FILE, "w", encoding="utf-8") as f:
             json.dump(subs, f, ensure_ascii=False, indent=2)
@@ -80,14 +75,12 @@ def save_subscribers(subs: list[int]):
 
 
 def is_admin(user_id: int) -> bool:
-    """Проверка прав администратора."""
     if config.ADMIN_IDS:
         return user_id in config.ADMIN_IDS
     return user_id == config.ADMIN_USER_ID
 
 
 async def setup_bot_commands():
-    """Регистрация команд в меню Telegram."""
     commands = [
         BotCommand(command="start", description="🚀 Запустить / Статус"),
         BotCommand(command="help", description="❓ Справка"),
@@ -115,7 +108,7 @@ async def start_handler(message: types.Message):
     else:
         await message.answer(
             f"👋 Ваш Telegram ID: `{user_id}`\n"
-            f"Передайте его администратору или используйте `/add {user_id}`.",
+            f"Чтобы получать алерты, добавьте его через `/add {user_id}`.",
             parse_mode="Markdown"
         )
 
@@ -124,7 +117,7 @@ async def start_handler(message: types.Message):
 async def help_handler(message: types.Message):
     await message.answer(
         "📖 **Справка:**\n"
-        "Бот отслеживает события покупки и продаж NFT в сети TON.\n\n"
+        "Бот отслеживает покупки и транзакции NFT в сети TON.\n\n"
         "**Команды админа:**\n"
         "• `/add <USER_ID>`\n"
         "• `/remove <USER_ID>`\n"
@@ -141,8 +134,8 @@ async def status_handler(message: types.Message):
         f"🖥 **Статус бота:**\n\n"
         f"• **Ваш ID:** `{user_id}`\n"
         f"• **Админ:** `{'Да' if is_admin(user_id) else 'Нет'}`\n"
-        f"• **Подписчиков:** `{len(subs)}/{config.MAX_SUBSCRIBERS}`\n"
-        f"• **Статус потока:** `Работает 🟢`",
+        f"• **Подписчиков в базе:** `{len(subs)}/{config.MAX_SUBSCRIBERS}`\n"
+        f"• **Обработано событий:** `{len(processed_event_ids)}`",
         parse_mode="Markdown"
     )
 
@@ -158,13 +151,11 @@ async def add_subscriber(message: types.Message):
     new_id = int(args[1])
     subs = load_subscribers()
     if new_id in subs:
-        return await message.answer("ℹ️ Уже добавлен.")
-    if len(subs) >= config.MAX_SUBSCRIBERS:
-        return await message.answer("⚠️ Достигнут лимит пользователей!")
+        return await message.answer("ℹ️ Уже в списке.")
 
     subs.append(new_id)
     save_subscribers(subs)
-    await message.answer(f"✅ Пользователь `{new_id}` добавлен!", parse_mode="Markdown")
+    await message.answer(f"✅ Пользователь `{new_id}` добавлен в подписчики!", parse_mode="Markdown")
 
 
 @dp.message(Command("remove"))
@@ -178,7 +169,7 @@ async def remove_subscriber(message: types.Message):
     remove_id = int(args[1])
     subs = load_subscribers()
     if remove_id not in subs:
-        return await message.answer("ℹ️ Не найден.")
+        return await message.answer("ℹ️ Не найден в базе.")
 
     subs.remove(remove_id)
     save_subscribers(subs)
@@ -190,46 +181,49 @@ async def list_subscribers(message: types.Message):
     if not is_admin(message.from_user.id):
         return
     subs = load_subscribers()
-    subs_text = "\n".join([f"• `{uid}`" for uid in subs])
+    subs_text = "\n".join([f"• `{uid}`" for uid in subs]) if subs else "Список пуст."
     await message.answer(f"📊 **Подписчики ({len(subs)}):**\n\n{subs_text}", parse_mode="Markdown")
 
 
-async def send_alert_to_all(nft_name: str, price_ton: str, nft_address: str):
-    """Рассылка уведомления всем подписчикам."""
-    nft_link = f"https://getgems.io/nft/{nft_address}"
+async def send_alert_to_all(title: str, price_str: str, nft_address: str):
+    """Рассылка алертов подписчикам."""
+    subscribers = load_subscribers()
+    if not subscribers:
+        logging.warning("⚠️ Найдено событие, но список подписчиков пуст!")
+        return
+
+    nft_link = f"https://getgems.io/nft/{nft_address}" if nft_address else "https://getgems.io"
     text = (
-        f"⚡️ **СВЕЖИЙ ЛОТ / СДЕЛКА!**\n\n"
-        f"🏷 **Название:** `{nft_name}`\n"
-        f"💰 **Цена/Ставка:** `{price_ton} TON`\n"
-        f"📍 **Адрес:** `{nft_address}`"
+        f"⚡️ **СДЕЛАНО СОБЫТИЕ В TON!**\n\n"
+        f"🏷 **Тип:** `{title}`\n"
+        f"💰 **Сумма:** `{price_str}`\n"
+        f"📍 **NFT:** `{nft_address[:12]}...{nft_address[-6:]}`" if len(nft_address) > 20 else f"📍 **NFT:** `{nft_address}`"
     )
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🚀 Открыть на Getgems", url=nft_link)]
     ])
 
-    subscribers = load_subscribers()
     for user_id in subscribers:
         try:
             await bot.send_message(chat_id=user_id, text=text, parse_mode="Markdown", reply_markup=keyboard)
+            logging.info(f"✅ Алерт отправлен пользователю {user_id}")
         except Exception as e:
-            logging.error(f"Ошибка отправки пользователю {user_id}: {e}")
+            logging.error(f"❌ Ошибка отправки пользователю {user_id}: {e}")
 
 
-# --- Поток мониторинга TonAPI ---
+# --- Мониторинг TonAPI ---
 async def monitor_nft_activity():
-    """Фоновый опрос TonAPI через HTTP."""
     logging.info("Слушатель событий TON запущен...")
     
-    headers = {
-        "Authorization": f"Bearer {config.TONAPI_KEY}",
-        "Accept": "application/json"
-    }
+    headers = {"Accept": "application/json"}
+    if getattr(config, "TONAPI_KEY", None):
+        headers["Authorization"] = f"Bearer {config.TONAPI_KEY}"
 
     async with aiohttp.ClientSession(headers=headers) as session:
         while True:
             for collection in COLLECTIONS_TO_MONITOR:
                 try:
-                    url = f"https://tonapi.io/v2/accounts/{collection}/events?limit=10"
+                    url = f"https://tonapi.io/v2/accounts/{collection}/events?limit=5"
                     async with session.get(url) as response:
                         if response.status != 200:
                             err_text = await response.text()
@@ -245,54 +239,57 @@ async def monitor_nft_activity():
                                 continue
 
                             processed_event_ids.add(event_id)
+                            logging.info(f"🔎 Новое событие сети [{event_id[:10]}...]")
 
                             for action in event.get("actions", []):
-                                action_type = action.get("type")
-
-                                if action_type == "NftPurchase" and "nft_purchase" in action:
-                                    purchase = action["nft_purchase"]
-                                    nft = purchase.get("nft", {})
+                                action_type = action.get("type", "Unknown")
+                                
+                                # 1. Покупка NFT
+                                if action_type == "NftPurchase":
+                                    purchase = action.get("nft_purchase", {})
                                     price_raw = int(purchase.get("amount", {}).get("value", 0))
                                     price = price_raw / 10**9
-                                    nft_name = nft.get("metadata", {}).get("name", "NFT")
-                                    nft_address = nft.get("address", "")
-                                    
-                                    await send_alert_to_all(nft_name, f"{price:.2f}", nft_address)
+                                    nft_addr = purchase.get("nft", {}).get("address", "")
+                                    await send_alert_to_all("Покупка NFT", f"{price:.2f} TON", nft_addr)
 
-                                elif action_type == "MarketplaceAction" and "marketplace_action" in action:
-                                    m_action = action["marketplace_action"]
-                                    nft = m_action.get("nft", {})
-                                    price_raw = int(m_action.get("price", {}).get("value", 0))
+                                # 2. Торговля на маркетплейсе
+                                elif action_type == "MarketplaceAction":
+                                    m_act = action.get("marketplace_action", {})
+                                    price_raw = int(m_act.get("price", {}).get("value", 0))
                                     price = price_raw / 10**9
-                                    nft_name = nft.get("metadata", {}).get("name", "NFT")
-                                    nft_address = nft.get("address", "")
+                                    nft_addr = m_act.get("nft", {}).get("address", "")
+                                    await send_alert_to_all("Маркетплейс", f"{price:.2f} TON", nft_addr)
 
-                                    await send_alert_to_all(nft_name, f"{price:.2f}", nft_address)
+                                # 3. Любая передача NFT
+                                elif action_type == "NftItemTransfer":
+                                    transfer = action.get("nft_item_transfer", {})
+                                    nft_addr = transfer.get("nft", "")
+                                    await send_alert_to_all("Передача NFT", "—", nft_addr)
 
-                    if len(processed_event_ids) > 2000:
+                    # Очистка памяти
+                    if len(processed_event_ids) > 1000:
                         processed_event_ids.clear()
 
                 except Exception as e:
                     logging.error(f"Ошибка опроса коллекции {collection}: {e}")
 
-            await asyncio.sleep(config.CHECK_INTERVAL)
+            await asyncio.sleep(getattr(config, "CHECK_INTERVAL", 5))
 
 
-# --- Главная функция ---
 async def main():
     await setup_bot_commands()
-    await start_health_server()  # Поднимает веб-сервер для зелёного статуса
+    await start_health_server()
     logging.info("Бот готов к работе.")
 
     if config.ADMIN_USER_ID:
         try:
             await bot.send_message(
                 chat_id=config.ADMIN_USER_ID,
-                text="🟢 **Сервер успешно перезапущен и мониторинг активен!**",
+                text="🟢 **Бот перезапущен! Проверь подписку командой /status.**",
                 parse_mode="Markdown"
             )
         except Exception as e:
-            logging.error(f"Не удалось отправить старт: {e}")
+            logging.error(f"Не удалось отправить стартовое сообщение: {e}")
 
     asyncio.create_task(monitor_nft_activity())
     await dp.start_polling(bot)
