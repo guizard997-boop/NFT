@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import aiohttp
+from aiohttp import web
 
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import CommandStart, Command
@@ -21,7 +22,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 bot = Bot(token=config.TELEGRAM_BOT_TOKEN)
 dp = Dispatcher()
 
-# Корректные Raw-адреса топовых NFT-коллекций TON
+# Корректные Raw-адреса NFT-коллекций TON
 COLLECTIONS_TO_MONITOR = [
     "0:80d6be28577dd80041cd58d6e32bc417ed2adbd2d13b41dddfa485bc972e3a89",  # Anonymous Numbers (+888)
     "0:08320b5da1e712392c5a2789bd079f8b3c9d77bbd51381373507d570eeed1d1d",  # Telegram Usernames
@@ -31,6 +32,27 @@ DB_FILE = "subscribers.json"
 processed_event_ids = set()
 
 
+# --- Веб-сервер для Health Check хостинга ---
+async def health_check(request):
+    """Отвечает хостингу 200 OK, чтобы статус горел зеленым."""
+    return web.Response(text="OK", status=200)
+
+async def start_health_server():
+    """Запускает служебный HTTP-порт."""
+    app = web.Application()
+    app.router.add_get("/", health_check)
+    app.router.add_get("/health", health_check)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    
+    # Берет порт из переменных окружения хостинга или ставит 8080 по умолчанию
+    port = int(os.environ.get("PORT", 8080))
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    logging.info(f"Health Check сервер успешно запущен на порту {port}")
+
+
+# --- Работа с БД подписчиков ---
 def load_subscribers() -> list[int]:
     """Загрузка списка подписчиков."""
     if config.WHITELIST_IDS:
@@ -77,6 +99,7 @@ async def setup_bot_commands():
     await bot.set_my_commands(commands, scope=BotCommandScopeDefault())
 
 
+# --- Хэндлеры бота ---
 @dp.message(CommandStart())
 async def start_handler(message: types.Message):
     user_id = message.from_user.id
@@ -192,6 +215,7 @@ async def send_alert_to_all(nft_name: str, price_ton: str, nft_address: str):
             logging.error(f"Ошибка отправки пользователю {user_id}: {e}")
 
 
+# --- Поток мониторинга TonAPI ---
 async def monitor_nft_activity():
     """Фоновый опрос TonAPI через HTTP."""
     logging.info("Слушатель событий TON запущен...")
@@ -254,8 +278,10 @@ async def monitor_nft_activity():
             await asyncio.sleep(config.CHECK_INTERVAL)
 
 
+# --- Главная функция ---
 async def main():
     await setup_bot_commands()
+    await start_health_server()  # Поднимает веб-сервер для зелёного статуса
     logging.info("Бот готов к работе.")
 
     if config.ADMIN_USER_ID:
