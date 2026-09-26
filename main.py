@@ -27,4 +27,31 @@ async def run_healthcheck_server() -> None:
     app.router.add_get("/health", handle_health)
 
     runner = web.AppRunner(app)
-    await runne
+    await runner.setup()
+    site = web.TCPSite(runner, host="0.0.0.0", port=HEALTHCHECK_PORT)
+    await site.start()
+    logger.info("Health-check сервер запущен на порту %s", HEALTHCHECK_PORT)
+
+    # Держим корутину живой, пока не отменят
+    await asyncio.Event().wait()
+
+
+async def main() -> None:
+    validate_config()
+
+    bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+    dp = Dispatcher()
+    dp.include_router(router)
+
+    await asyncio.gather(
+        dp.start_polling(bot),
+        monitor_loop(bot),
+        run_healthcheck_server(),
+    )
+
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except (KeyboardInterrupt, SystemExit):
+        logger.info("Бот остановлен.")
