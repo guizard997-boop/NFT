@@ -15,16 +15,17 @@ from aiogram.types import (
 
 import config
 
+# Настройка логирования
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 bot = Bot(token=config.TELEGRAM_BOT_TOKEN)
 dp = Dispatcher()
 tonapi = Tonapi(api_key=config.TONAPI_KEY)
 
-# Активные коллекции с постоянным потоком сделок (Telegram Юзернеймы, Номера +888)
+# Активные коллекции (Telegram Usernames и Anonymous Numbers)
 COLLECTIONS_TO_MONITOR = [
     "EQCA14o1-4BkOcY1LJK9W3-L_Jq3e1",  # Telegram Usernames
-    "EQAO2X6432_32gA86WNaM13J-2M_432",  # Anonymous Telegram Numbers
+    "EQAO2X6432_32gA86WNaM13J-2M_432",  # Anonymous Telegram Numbers (+888)
 ]
 
 DB_FILE = "subscribers.json"
@@ -133,7 +134,7 @@ async def add_subscriber(message: types.Message):
     new_id = int(args[1])
     subs = load_subscribers()
     if new_id in subs:
-        return await message.answer("ℹ️ Ужe добавлен.")
+        return await message.answer("ℹ️ Уже добавлен.")
     if len(subs) >= config.MAX_SUBSCRIBERS:
         return await message.answer("⚠️ Достигнут лимит пользователей!")
 
@@ -191,13 +192,14 @@ async def send_alert_to_all(nft_name: str, price_ton: str, nft_address: str):
 
 
 async def monitor_nft_activity():
-    """Фоновый поток сбора активности."""
+    """Фоновый поток сбора активности через корректный метод accounts.get_events."""
     logging.info("Слушатель событий TON запущен...")
 
     while True:
         for collection in COLLECTIONS_TO_MONITOR:
             try:
-                activity = tonapi.nft.get_collection_history(account_id=collection, limit=10)
+                # В pytonapi 0.2.0 события получают через accounts
+                activity = await tonapi.accounts.get_events(account_id=collection, limit=10)
 
                 for event in activity.events:
                     event_id = event.event_id
@@ -207,19 +209,22 @@ async def monitor_nft_activity():
                     processed_event_ids.add(event_id)
 
                     for action in event.actions:
-                        if action.type == "NftPurchase":
+                        if action.type == "NftPurchase" and action.nft_purchase:
                             nft = action.nft_purchase.nft
                             price = action.nft_purchase.amount.value / 10**9
+                            nft_name = nft.metadata.get("name", "NFT") if nft.metadata else "NFT"
                             await send_alert_to_all(
-                                nft.metadata.get("name", "NFT"),
+                                nft_name,
                                 f"{price:.2f}",
                                 nft.address.to_userfriendly()
                             )
-                        elif action.type == "MarketplaceAction":
+
+                        elif action.type == "MarketplaceAction" and action.marketplace_action:
                             nft = action.marketplace_action.nft
                             price = action.marketplace_action.price.value / 10**9
+                            nft_name = nft.metadata.get("name", "NFT") if nft.metadata else "NFT"
                             await send_alert_to_all(
-                                nft.metadata.get("name", "NFT"),
+                                nft_name,
                                 f"{price:.2f}",
                                 nft.address.to_userfriendly()
                             )
@@ -237,7 +242,6 @@ async def main():
     await setup_bot_commands()
     logging.info("Бот готов к работе.")
 
-    # Проверочное сообщение админу при успешном запуске контейнера
     if config.ADMIN_USER_ID:
         try:
             await bot.send_message(
@@ -246,7 +250,7 @@ async def main():
                 parse_mode="Markdown"
             )
         except Exception as e:
-            logging.error(f"Не удалось отправить тестовый старт админу: {e}")
+            logging.error(f"Не удалось отправить сообщение при старте: {e}")
 
     asyncio.create_task(monitor_nft_activity())
     await dp.start_polling(bot)
