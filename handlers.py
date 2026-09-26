@@ -22,7 +22,7 @@ async def cmd_start(message: Message):
     user_id = message.from_user.id
     added = add_subscriber(user_id)
 
-    lines = [f"👋 Привет! Ваш Telegram ID: <code>{user_id}</code>"]
+    lines = [f"Бека шалава ебаная твой Telegram ID: <code>{user_id}</code>"]
     if added:
         lines.append("✅ Вы подписаны на уведомления о событиях NFT.")
     else:
