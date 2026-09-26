@@ -2,8 +2,8 @@ import asyncio
 import json
 import logging
 import os
+import aiohttp
 
-from pytonapi import Tonapi
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import CommandStart, Command
 from aiogram.types import (
@@ -19,9 +19,8 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 
 bot = Bot(token=config.TELEGRAM_BOT_TOKEN)
 dp = Dispatcher()
-tonapi = Tonapi(api_key=config.TONAPI_KEY)
 
-# Только валидные адреса коллекций
+# Точные адреса коллекций
 COLLECTIONS_TO_MONITOR = [
     "EQCA14o1-4BkOcY1LJK9W3-L_Jq3e1",  # Telegram Usernames
 ]
@@ -187,48 +186,65 @@ async def send_alert_to_all(nft_name: str, price_ton: str, nft_address: str):
 
 
 async def monitor_nft_activity():
+    """Фоновый опрос TonAPI напрямую через HTTP без кривых библиотек."""
     logging.info("Слушатель событий TON запущен...")
+    
+    headers = {
+        "Authorization": f"Bearer {config.TONAPI_KEY}",
+        "Accept": "application/json"
+    }
 
-    while True:
-        for collection in COLLECTIONS_TO_MONITOR:
-            try:
-                activity = await tonapi.accounts.get_events(account_id=collection, limit=10)
+    async with aiohttp.ClientSession(headers=headers) as session:
+        while True:
+            for collection in COLLECTIONS_TO_MONITOR:
+                try:
+                    url = f"https://tonapi.io/v2/accounts/{collection}/events?limit=10"
+                    async with session.get(url) as response:
+                        if response.status != 200:
+                            err_text = await response.text()
+                            logging.error(f"TonAPI Error [{response.status}]: {err_text}")
+                            continue
 
-                for event in activity.events:
-                    event_id = event.event_id
-                    if event_id in processed_event_ids:
-                        continue
+                        data = await response.json()
+                        events = data.get("events", [])
 
-                    processed_event_ids.add(event_id)
+                        for event in events:
+                            event_id = event.get("event_id")
+                            if not event_id or event_id in processed_event_ids:
+                                continue
 
-                    for action in event.actions:
-                        if action.type == "NftPurchase" and action.nft_purchase:
-                            nft = action.nft_purchase.nft
-                            price = action.nft_purchase.amount.value / 10**9
-                            nft_name = nft.metadata.get("name", "NFT") if nft.metadata else "NFT"
-                            await send_alert_to_all(
-                                nft_name,
-                                f"{price:.2f}",
-                                nft.address.to_userfriendly()
-                            )
+                            processed_event_ids.add(event_id)
 
-                        elif action.type == "MarketplaceAction" and action.marketplace_action:
-                            nft = action.marketplace_action.nft
-                            price = action.marketplace_action.price.value / 10**9
-                            nft_name = nft.metadata.get("name", "NFT") if nft.metadata else "NFT"
-                            await send_alert_to_all(
-                                nft_name,
-                                f"{price:.2f}",
-                                nft.address.to_userfriendly()
-                            )
+                            for action in event.get("actions", []):
+                                action_type = action.get("type")
 
-                if len(processed_event_ids) > 2000:
-                    processed_event_ids.clear()
+                                if action_type == "NftPurchase" and "nft_purchase" in action:
+                                    purchase = action["nft_purchase"]
+                                    nft = purchase.get("nft", {})
+                                    price_raw = int(purchase.get("amount", {}).get("value", 0))
+                                    price = price_raw / 10**9
+                                    nft_name = nft.get("metadata", {}).get("name", "NFT")
+                                    nft_address = nft.get("address", "")
+                                    
+                                    await send_alert_to_all(nft_name, f"{price:.2f}", nft_address)
 
-            except Exception as e:
-                logging.error(f"Ошибка опроса коллекции {collection}: {e}")
+                                elif action_type == "MarketplaceAction" and "marketplace_action" in action:
+                                    m_action = action["marketplace_action"]
+                                    nft = m_action.get("nft", {})
+                                    price_raw = int(m_action.get("price", {}).get("value", 0))
+                                    price = price_raw / 10**9
+                                    nft_name = nft.get("metadata", {}).get("name", "NFT")
+                                    nft_address = nft.get("address", "")
 
-        await asyncio.sleep(config.CHECK_INTERVAL)
+                                    await send_alert_to_all(nft_name, f"{price:.2f}", nft_address)
+
+                    if len(processed_event_ids) > 2000:
+                        processed_event_ids.clear()
+
+                except Exception as e:
+                    logging.error(f"Ошибка опроса коллекции {collection}: {e}")
+
+            await asyncio.sleep(config.CHECK_INTERVAL)
 
 
 async def main():
