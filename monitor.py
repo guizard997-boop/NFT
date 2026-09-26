@@ -18,7 +18,7 @@ from storage import (
     load_subscribers,
     save_state,
 )
-from tonapi import get_account_events, nanoton_to_ton, short_address
+from tonapi import get_account_events, nanoton_to_ton, normalize_nft_address, short_address
 
 logger = logging.getLogger("monitor")
 
@@ -77,6 +77,8 @@ def extract_details(action: Dict[str, Any], category: str) -> Dict[str, Any]:
         nft_address = nft_info.get("address")
     elif isinstance(nft_info, str):
         nft_address = nft_info
+
+    nft_address = normalize_nft_address(nft_address)
 
     # Сумма сделки (обычно в нанотонах в поле amount / price)
     price_info = payload.get("amount") or payload.get("price")
