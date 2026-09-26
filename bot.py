@@ -7,239 +7,147 @@ from aiohttp import web
 
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import CommandStart, Command
-from aiogram.types import (
-    InlineKeyboardMarkup, 
-    InlineKeyboardButton, 
-    BotCommand, 
-    BotCommandScopeDefault
-)
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
 
 import config
 
-# Настройка логирования
+# Логирование
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
+# Инициализация
 bot = Bot(token=config.TELEGRAM_BOT_TOKEN)
 dp = Dispatcher()
 
-# Raw-адреса NFT-коллекций TON (Anonymous Numbers +888 и Telegram Usernames)
-COLLECTIONS_TO_MONITOR = [
+# Мониторим 2 коллекции (Anonymous +888 и Telegram Usernames)
+COLLECTIONS = [
     "0:80d6be28577dd80041cd58d6e32bc417ed2adbd2d13b41dddfa485bc972e3a89",
     "0:08320b5da1e712392c5a2789bd079f8b3c9d77bbd51381373507d570eeed1d1d",
 ]
 
 DB_FILE = "subscribers.json"
-processed_event_ids = set()
+PROCESSED_EVENTS = set()
 
 
-# --- Health Check для хостинга ---
-async def health_check(request):
-    """Отвечает хостингу 200 OK, чтобы статус контейнера был зелёным."""
-    return web.Response(text="OK", status=200)
-
-async def start_health_server():
-    """Запускает служебный HTTP-сервер."""
-    app = web.Application()
-    app.router.add_get("/", health_check)
-    app.router.add_get("/health", health_check)
-    runner = web.AppRunner(app)
-    await runner.setup()
-    
-    port = int(os.environ.get("PORT", 8080))
-    site = web.TCPSite(runner, "0.0.0.0", port)
-    await site.start()
-    logging.info(f"Health Check сервер работает на порту {port}")
-
-
-# --- Управление подписчиками ---
-def load_subscribers() -> list[int]:
-    """Загрузка списка подписчиков."""
-    if getattr(config, "WHITELIST_IDS", None):
-        return config.WHITELIST_IDS[:config.MAX_SUBSCRIBERS]
-
+# --- База данных подписчиков ---
+def get_subscribers() -> list[int]:
     if not os.path.exists(DB_FILE):
-        initial = [config.ADMIN_USER_ID] if getattr(config, "ADMIN_USER_ID", None) else []
+        admin = getattr(config, "ADMIN_USER_ID", None)
+        initial = [admin] if admin else []
         save_subscribers(initial)
         return initial
     try:
         with open(DB_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
     except Exception as e:
-        logging.error(f"Ошибка чтения {DB_FILE}: {e}")
-        return [config.ADMIN_USER_ID] if getattr(config, "ADMIN_USER_ID", None) else []
-
+        logging.error(f"Ошибка чтения DB: {e}")
+        return []
 
 def save_subscribers(subs: list[int]):
-    """Сохранение подписчиков в файл."""
     try:
         with open(DB_FILE, "w", encoding="utf-8") as f:
-            json.dump(subs, f, ensure_ascii=False, indent=2)
+            json.dump(list(set(subs)), f, ensure_ascii=False, indent=2)
     except Exception as e:
-        logging.error(f"Ошибка сохранения {DB_FILE}: {e}")
-
+        logging.error(f"Ошибка сохранения DB: {e}")
 
 def is_admin(user_id: int) -> bool:
-    """Проверка прав администратора."""
+    admin_id = getattr(config, "ADMIN_USER_ID", None)
     admin_ids = getattr(config, "ADMIN_IDS", [])
-    if admin_ids:
-        return user_id in admin_ids
-    return user_id == getattr(config, "ADMIN_USER_ID", None)
+    return user_id == admin_id or user_id in admin_ids
 
 
-async def setup_bot_commands():
-    """Регистрация меню команд Telegram."""
-    commands = [
-        BotCommand(command="start", description="🚀 Запустить / Статус"),
-        BotCommand(command="help", description="❓ Справка"),
-        BotCommand(command="status", description="📊 Состояние мониторинга"),
-        BotCommand(command="test", description="🧪 Тестовая рассылка (Админ)"),
-        BotCommand(command="list", description="👥 Список подписчиков (Админ)"),
-        BotCommand(command="add", description="➕ Добавить ID (Админ)"),
-        BotCommand(command="remove", description="➖ Удалить ID (Админ)"),
-    ]
-    await bot.set_my_commands(commands, scope=BotCommandScopeDefault())
+# --- Health Check для хостинга ---
+async def start_health_server():
+    app = web.Application()
+    app.router.add_get("/", lambda r: web.Response(text="OK"))
+    app.router.add_get("/health", lambda r: web.Response(text="OK"))
+    runner = web.AppRunner(app)
+    await runner.setup()
+    port = int(os.environ.get("PORT", 8080))
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    logging.info(f"Health check запущен на порту {port}")
 
 
-# --- Хэндлеры команд ---
+# --- Telegram команды ---
 @dp.message(CommandStart())
-async def start_handler(message: types.Message):
-    user_id = message.from_user.id
-    subs = load_subscribers()
-
-    if user_id in subs:
-        await message.answer(
-            f"👋 **Привет, {message.from_user.first_name}!**\n\n"
-            f"Мониторинг NFT-рынка активен.\n"
-            f"Подписчиков: `{len(subs)}/{getattr(config, 'MAX_SUBSCRIBERS', 50)}`.",
-            parse_mode="Markdown"
-        )
+async def cmd_start(msg: types.Message):
+    user_id = msg.from_user.id
+    subs = get_subscribers()
+    if user_id not in subs:
+        subs.append(user_id)
+        save_subscribers(subs)
+        await msg.answer(f"✅ Ты подписан на алерты! Твой ID: `{user_id}`", parse_mode="Markdown")
     else:
-        await message.answer(
-            f"👋 Ваш Telegram ID: `{user_id}`\n"
-            f"Чтобы получать алерты, добавьте его через `/add {user_id}`.",
-            parse_mode="Markdown"
-        )
-
-
-@dp.message(Command("help"))
-async def help_handler(message: types.Message):
-    await message.answer(
-        "📖 **Справка:**\n"
-        "Бот отслеживает покупки и сделки NFT в сети TON.\n\n"
-        "**Команды админа:**\n"
-        "• `/test` — проверить рассылку\n"
-        "• `/add <USER_ID>` — добавить подписчика\n"
-        "• `/remove <USER_ID>` — удалить подписчика\n"
-        "• `/list` — список подписчиков",
-        parse_mode="Markdown"
-    )
-
+        await msg.answer(f"👋 Мониторинг активен. Твой ID: `{user_id}`", parse_mode="Markdown")
 
 @dp.message(Command("status"))
-async def status_handler(message: types.Message):
-    subs = load_subscribers()
-    user_id = message.from_user.id
-    await message.answer(
-        f"🖥 **Статус бота:**\n\n"
-        f"• **Ваш ID:** `{user_id}`\n"
-        f"• **Админ:** `{'Да' if is_admin(user_id) else 'Нет'}`\n"
-        f"• **Подписчиков в базе:** `{len(subs)}/{getattr(config, 'MAX_SUBSCRIBERS', 50)}`\n"
-        f"• **Обработано событий:** `{len(processed_event_ids)}`",
+async def cmd_status(msg: types.Message):
+    subs = get_subscribers()
+    await msg.answer(
+        f"📊 **Статус:**\n"
+        f"• Твой ID: `{msg.from_user.id}`\n"
+        f"• Админ: `{'Да' if is_admin(msg.from_user.id) else 'Нет'}`\n"
+        f"• Подписчиков: `{len(subs)}`\n"
+        f"• Событий обработано: `{len(PROCESSED_EVENTS)}`",
         parse_mode="Markdown"
     )
 
-
 @dp.message(Command("test"))
-async def test_alert_handler(message: types.Message):
-    if not is_admin(message.from_user.id):
-        return await message.answer("⛔ Только для администратора.")
-    
-    await message.answer("⏳ Запускаю тестовую рассылку...")
-    await send_alert_to_all(
-        title="ТЕСТОВОЕ СОБЫТИЕ", 
-        price_str="888.00 TON", 
-        nft_address="0:80d6be28577dd80041cd58d6e32bc417ed2adbd2d13b41dddfa485bc972e3a89"
-    )
-    await message.answer("✅ Тестовое сообщение отправлено всем подписчикам!")
-
+async def cmd_test(msg: types.Message):
+    if not is_admin(msg.from_user.id):
+        return await msg.answer("⛔ Только для админа.")
+    await msg.answer("🧪 Запуск теста рассылки...")
+    await broadcast_alert("ТЕСТОВОЕ СОБЫТИЕ", "100.00 TON", "0:80d6be28577dd80041cd58d6e32bc417ed2adbd2d13b41dddfa485bc972e3a89")
 
 @dp.message(Command("add"))
-async def add_subscriber(message: types.Message):
-    if not is_admin(message.from_user.id):
-        return await message.answer("⛔ Нет прав.")
-    args = message.text.split()
-    if len(args) < 2 or not args[1].isdigit():
-        return await message.answer("⚠️ Формат: `/add USER_ID`", parse_mode="Markdown")
-
-    new_id = int(args[1])
-    subs = load_subscribers()
-    if new_id in subs:
-        return await message.answer("ℹ️ Уже в списке.")
-
-    subs.append(new_id)
-    save_subscribers(subs)
-    await message.answer(f"✅ Пользователь `{new_id}` добавлен в подписчики!", parse_mode="Markdown")
-
-
-@dp.message(Command("remove"))
-async def remove_subscriber(message: types.Message):
-    if not is_admin(message.from_user.id):
-        return await message.answer("⛔ Нет прав.")
-    args = message.text.split()
-    if len(args) < 2 or not args[1].isdigit():
-        return await message.answer("⚠️ Формат: `/remove USER_ID`", parse_mode="Markdown")
-
-    remove_id = int(args[1])
-    subs = load_subscribers()
-    if remove_id not in subs:
-        return await message.answer("ℹ️ Не найден в базе.")
-
-    subs.remove(remove_id)
-    save_subscribers(subs)
-    await message.answer(f"🗑 Пользователь `{remove_id}` удален!", parse_mode="Markdown")
-
+async def cmd_add(msg: types.Message):
+    if not is_admin(msg.from_user.id):
+        return
+    args = msg.text.split()
+    if len(args) > 1 and args[1].isdigit():
+        new_id = int(args[1])
+        subs = get_subscribers()
+        subs.append(new_id)
+        save_subscribers(subs)
+        await msg.answer(f"✅ Добавлен: `{new_id}`", parse_mode="Markdown")
 
 @dp.message(Command("list"))
-async def list_subscribers(message: types.Message):
-    if not is_admin(message.from_user.id):
+async def cmd_list(msg: types.Message):
+    if not is_admin(msg.from_user.id):
         return
-    subs = load_subscribers()
-    subs_text = "\n".join([f"• `{uid}`" for uid in subs]) if subs else "Список пуст."
-    await message.answer(f"📊 **Подписчики ({len(subs)}):**\n\n{subs_text}", parse_mode="Markdown")
+    subs = get_subscribers()
+    await msg.answer(f"👥 Список: {subs}")
 
 
-async def send_alert_to_all(title: str, price_str: str, nft_address: str):
-    """Рассылка сообщений подписчикам."""
-    subscribers = load_subscribers()
-    if not subscribers:
-        logging.warning("⚠️ Найдено событие, но список подписчиков пуст!")
+# --- Рассылка ---
+async def broadcast_alert(event_type: str, price: str, nft_address: str):
+    subs = get_subscribers()
+    if not subs:
+        logging.warning("Событие найдено, но список подписчиков пуст.")
         return
 
     nft_link = f"https://getgems.io/nft/{nft_address}" if nft_address else "https://getgems.io"
-    short_addr = f"{nft_address[:10]}...{nft_address[-6:]}" if len(nft_address) > 20 else nft_address
-    
     text = (
-        f"⚡️ **СДЕЛАНО СОБЫТИЕ В TON!**\n\n"
-        f"🏷 **Тип:** `{title}`\n"
-        f"💰 **Цена / Сумма:** `{price_str}`\n"
-        f"📍 **NFT:** `{short_addr}`"
+        f"🚨 **NFT СДЕЛКА В TON!**\n\n"
+        f"📌 **Тип:** `{event_type}`\n"
+        f"💰 **Цена:** `{price}`\n"
+        f"📍 **Адрес:** `{nft_address[:10]}...{nft_address[-6:]}`"
     )
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🚀 Открыть на Getgems", url=nft_link)]
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔗 Открыть на Getgems", url=nft_link)]
     ])
 
-    for user_id in subscribers:
+    for uid in subs:
         try:
-            await bot.send_message(chat_id=user_id, text=text, parse_mode="Markdown", reply_markup=keyboard)
-            logging.info(f"✅ Алерт отправлен пользователю {user_id}")
+            await bot.send_message(chat_id=uid, text=text, parse_mode="Markdown", reply_markup=kb)
+            logging.info(f"Алерт ушел пользователю {uid}")
         except Exception as e:
-            logging.error(f"❌ Ошибка отправки пользователю {user_id}: {e}")
+            logging.error(f"Не удалось отправить пользователю {uid}: {e}")
 
 
-# --- Мониторинг TonAPI ---
-async def monitor_nft_activity():
-    """Фоновый опрос TonAPI."""
-    logging.info("Слушатель событий TON запущен...")
+# --- Парсинг TonAPI ---
+async def fetch_ton_events():
+    logging.info("Цикл TonAPI запущен...")
     
     headers = {"Accept": "application/json"}
     api_key = getattr(config, "TONAPI_KEY", None)
@@ -248,80 +156,79 @@ async def monitor_nft_activity():
 
     async with aiohttp.ClientSession(headers=headers) as session:
         while True:
-            for collection in COLLECTIONS_TO_MONITOR:
+            for collection in COLLECTIONS:
                 try:
-                    url = f"https://tonapi.io/v2/accounts/{collection}/events?limit=5"
-                    async with session.get(url) as response:
-                        if response.status != 200:
-                            err_text = await response.text()
-                            logging.error(f"TonAPI Error [{response.status}]: {err_text}")
+                    url = f"https://tonapi.io/v2/accounts/{collection}/events?limit=10"
+                    async with session.get(url, timeout=10) as resp:
+                        if resp.status != 200:
+                            body = await resp.text()
+                            logging.error(f"TonAPI Ошибка HTTP {resp.status}: {body[:100]}")
                             continue
 
-                        data = await response.json()
+                        data = await resp.json()
                         events = data.get("events", [])
 
-                        for event in events:
-                            event_id = event.get("event_id")
-                            if not event_id or event_id in processed_event_ids:
+                        for ev in events:
+                            event_id = ev.get("event_id")
+                            if not event_id or event_id in PROCESSED_EVENTS:
                                 continue
 
-                            processed_event_ids.add(event_id)
-                            logging.info(f"🔎 Новое событие сети [{event_id[:10]}...]")
+                            # Фиксируем новое событие
+                            PROCESSED_EVENTS.add(event_id)
+                            logging.info(f"🔥 Новое событие из TON: {event_id[:12]}")
 
-                            for action in event.get("actions", []):
-                                action_type = action.get("type", "Unknown")
+                            actions = ev.get("actions", [])
+                            for act in actions:
+                                act_type = act.get("type")
                                 
-                                # 1. Покупка NFT
-                                if action_type == "NftPurchase":
-                                    purchase = action.get("nft_purchase", {})
-                                    price_raw = int(purchase.get("amount", {}).get("value", 0))
-                                    price = price_raw / 10**9
-                                    nft_addr = purchase.get("nft", {}).get("address", "")
-                                    await send_alert_to_all("Покупка NFT", f"{price:.2f} TON", nft_addr)
+                                # 1. Прямая покупка NFT
+                                if act_type == "NftPurchase" and "nft_purchase" in act:
+                                    p = act["nft_purchase"]
+                                    price = int(p.get("amount", {}).get("value", 0)) / 10**9
+                                    addr = p.get("nft", {}).get("address", "")
+                                    await broadcast_alert("Покупка NFT", f"{price:.2f} TON", addr)
 
-                                # 2. Маркетплейс
-                                elif action_type == "MarketplaceAction":
-                                    m_act = action.get("marketplace_action", {})
-                                    price_raw = int(m_act.get("price", {}).get("value", 0))
-                                    price = price_raw / 10**9
-                                    nft_addr = m_act.get("nft", {}).get("address", "")
-                                    await send_alert_to_all("Маркетплейс", f"{price:.2f} TON", nft_addr)
+                                # 2. Действия на маркетплейсах
+                                elif act_type == "MarketplaceAction" and "marketplace_action" in act:
+                                    m = act["marketplace_action"]
+                                    price = int(m.get("price", {}).get("value", 0)) / 10**9
+                                    addr = m.get("nft", {}).get("address", "")
+                                    await broadcast_alert("Маркетплейс", f"{price:.2f} TON", addr)
 
-                                # 3. Передача NFT
-                                elif action_type == "NftItemTransfer":
-                                    transfer = action.get("nft_item_transfer", {})
-                                    nft_addr = transfer.get("nft", "")
-                                    await send_alert_to_all("Передача NFT", "—", nft_addr)
+                                # 3. Трансферы / смены владельца
+                                elif act_type == "NftItemTransfer" and "nft_item_transfer" in act:
+                                    t = act["nft_item_transfer"]
+                                    addr = t.get("nft", "")
+                                    await broadcast_alert("Передача NFT", "—", addr)
 
-                    if len(processed_event_ids) > 1000:
-                        processed_event_ids.clear()
+                    if len(PROCESSED_EVENTS) > 2000:
+                        PROCESSED_EVENTS.clear()
 
                 except Exception as e:
-                    logging.error(f"Ошибка опроса коллекции {collection}: {e}")
+                    logging.error(f"Сбой при опросе коллекции {collection}: {e}")
 
             interval = getattr(config, "CHECK_INTERVAL", 5)
             await asyncio.sleep(interval)
 
 
+# --- Точка входа ---
 async def main():
-    await setup_bot_commands()
+    # Регистрируем команды в меню Telegram
+    await bot.set_my_commands([
+        BotCommand(command="start", description="Запустить"),
+        BotCommand(command="status", description="Статус"),
+        BotCommand(command="test", description="Тест"),
+        BotCommand(command="add", description="Добавить ID"),
+        BotCommand(command="list", description="Список ID"),
+    ])
+    
     await start_health_server()
-    logging.info("Бот готов к работе.")
-
-    admin_id = getattr(config, "ADMIN_USER_ID", None)
-    if admin_id:
-        try:
-            await bot.send_message(
-                chat_id=admin_id,
-                text="🟢 **Бот успешно перезапущен и готов к работе!**",
-                parse_mode="Markdown"
-            )
-        except Exception as e:
-            logging.error(f"Не удалось отправить стартовое сообщение: {e}")
-
-    asyncio.create_task(monitor_nft_activity())
+    
+    # Фоновая задача опроса API
+    asyncio.create_task(fetch_ton_events())
+    
+    logging.info("Бот запущен!")
     await dp.start_polling(bot)
-
 
 if __name__ == "__main__":
     try:
