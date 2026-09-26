@@ -15,14 +15,16 @@ from aiogram.types import (
 
 import config
 
+# Настройка логирования
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 bot = Bot(token=config.TELEGRAM_BOT_TOKEN)
 dp = Dispatcher()
 
-# Точные адреса коллекций
+# Корректные Raw-адреса топовых NFT-коллекций TON
 COLLECTIONS_TO_MONITOR = [
-    "EQCA14o1-4BkOcY1LJK9W3-L_Jq3e1",  # Telegram Usernames
+    "0:80d6be28577dd80041cd58d6e32bc417ed2adbd2d13b41dddfa485bc972e3a89",  # Anonymous Numbers (+888)
+    "0:08320b5da1e712392c5a2789bd079f8b3c9d77bbd51381373507d570eeed1d1d",  # Telegram Usernames
 ]
 
 DB_FILE = "subscribers.json"
@@ -30,6 +32,7 @@ processed_event_ids = set()
 
 
 def load_subscribers() -> list[int]:
+    """Загрузка списка подписчиков."""
     if config.WHITELIST_IDS:
         return config.WHITELIST_IDS[:config.MAX_SUBSCRIBERS]
 
@@ -46,6 +49,7 @@ def load_subscribers() -> list[int]:
 
 
 def save_subscribers(subs: list[int]):
+    """Сохранение подписчиков в файл."""
     try:
         with open(DB_FILE, "w", encoding="utf-8") as f:
             json.dump(subs, f, ensure_ascii=False, indent=2)
@@ -54,12 +58,14 @@ def save_subscribers(subs: list[int]):
 
 
 def is_admin(user_id: int) -> bool:
+    """Проверка прав администратора."""
     if config.ADMIN_IDS:
         return user_id in config.ADMIN_IDS
     return user_id == config.ADMIN_USER_ID
 
 
 async def setup_bot_commands():
+    """Регистрация команд в меню Telegram."""
     commands = [
         BotCommand(command="start", description="🚀 Запустить / Статус"),
         BotCommand(command="help", description="❓ Справка"),
@@ -166,6 +172,7 @@ async def list_subscribers(message: types.Message):
 
 
 async def send_alert_to_all(nft_name: str, price_ton: str, nft_address: str):
+    """Рассылка уведомления всем подписчикам."""
     nft_link = f"https://getgems.io/nft/{nft_address}"
     text = (
         f"⚡️ **СВЕЖИЙ ЛОТ / СДЕЛКА!**\n\n"
@@ -186,7 +193,7 @@ async def send_alert_to_all(nft_name: str, price_ton: str, nft_address: str):
 
 
 async def monitor_nft_activity():
-    """Фоновый опрос TonAPI напрямую через HTTP без кривых библиотек."""
+    """Фоновый опрос TonAPI через HTTP."""
     logging.info("Слушатель событий TON запущен...")
     
     headers = {
