@@ -15,17 +15,15 @@ from aiogram.types import (
 
 import config
 
-# Настройка логирования
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 bot = Bot(token=config.TELEGRAM_BOT_TOKEN)
 dp = Dispatcher()
 tonapi = Tonapi(api_key=config.TONAPI_KEY)
 
-# Активные коллекции (Telegram Usernames и Anonymous Numbers)
+# Только валидные адреса коллекций
 COLLECTIONS_TO_MONITOR = [
     "EQCA14o1-4BkOcY1LJK9W3-L_Jq3e1",  # Telegram Usernames
-    "EQAO2X6432_32gA86WNaM13J-2M_432",  # Anonymous Telegram Numbers (+888)
 ]
 
 DB_FILE = "subscribers.json"
@@ -33,7 +31,6 @@ processed_event_ids = set()
 
 
 def load_subscribers() -> list[int]:
-    """Загрузка списка подписчиков."""
     if config.WHITELIST_IDS:
         return config.WHITELIST_IDS[:config.MAX_SUBSCRIBERS]
 
@@ -50,7 +47,6 @@ def load_subscribers() -> list[int]:
 
 
 def save_subscribers(subs: list[int]):
-    """Сохранение подписчиков в локальный файл."""
     try:
         with open(DB_FILE, "w", encoding="utf-8") as f:
             json.dump(subs, f, ensure_ascii=False, indent=2)
@@ -91,7 +87,7 @@ async def start_handler(message: types.Message):
     else:
         await message.answer(
             f"👋 Ваш Telegram ID: `{user_id}`\n"
-            f"Передайте его администратору или используйте `/add {user_id}` (если вы админ).",
+            f"Передайте его администратору или используйте `/add {user_id}`.",
             parse_mode="Markdown"
         )
 
@@ -100,7 +96,7 @@ async def start_handler(message: types.Message):
 async def help_handler(message: types.Message):
     await message.answer(
         "📖 **Справка:**\n"
-        "Бот отслеживает события покупки, продажи и аукционов NFT в сети TON и присылает их в реальном времени.\n\n"
+        "Бот отслеживает события покупки и продаж NFT в сети TON.\n\n"
         "**Команды админа:**\n"
         "• `/add <USER_ID>`\n"
         "• `/remove <USER_ID>`\n"
@@ -171,7 +167,6 @@ async def list_subscribers(message: types.Message):
 
 
 async def send_alert_to_all(nft_name: str, price_ton: str, nft_address: str):
-    """Рассылка сообщения всем подписчикам."""
     nft_link = f"https://getgems.io/nft/{nft_address}"
     text = (
         f"⚡️ **СВЕЖИЙ ЛОТ / СДЕЛКА!**\n\n"
@@ -192,13 +187,11 @@ async def send_alert_to_all(nft_name: str, price_ton: str, nft_address: str):
 
 
 async def monitor_nft_activity():
-    """Фоновый поток сбора активности через корректный метод accounts.get_events."""
     logging.info("Слушатель событий TON запущен...")
 
     while True:
         for collection in COLLECTIONS_TO_MONITOR:
             try:
-                # В pytonapi 0.2.0 события получают через accounts
                 activity = await tonapi.accounts.get_events(account_id=collection, limit=10)
 
                 for event in activity.events:
@@ -250,7 +243,7 @@ async def main():
                 parse_mode="Markdown"
             )
         except Exception as e:
-            logging.error(f"Не удалось отправить сообщение при старте: {e}")
+            logging.error(f"Не удалось отправить старт: {e}")
 
     asyncio.create_task(monitor_nft_activity())
     await dp.start_polling(bot)
