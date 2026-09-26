@@ -52,10 +52,15 @@ async def get_account_events(
         return []
 
 
-def nanoton_to_ton(value: Optional[int]) -> float:
-    if not value:
+def nanoton_to_ton(value: Optional[Any]) -> float:
+    if value is None or value == "":
         return 0.0
-    return round(value / NANOTON, 4)
+    try:
+        value_int = int(value)
+    except (ValueError, TypeError):
+        logger.warning("Не удалось преобразовать сумму '%s' в число", value)
+        return 0.0
+    return round(value_int / NANOTON, 4)
 
 
 def short_address(address: Optional[str]) -> str:

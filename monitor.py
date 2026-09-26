@@ -83,10 +83,7 @@ def extract_details(action: Dict[str, Any], category: str) -> Dict[str, Any]:
     if isinstance(price_info, dict):
         amount_ton = nanoton_to_ton(price_info.get("value") or price_info.get("amount"))
     elif isinstance(price_info, (int, float, str)):
-        try:
-            amount_ton = nanoton_to_ton(int(price_info))
-        except (ValueError, TypeError):
-            amount_ton = 0.0
+        amount_ton = nanoton_to_ton(price_info)
 
     return {
         "nft_address": nft_address,
@@ -155,16 +152,22 @@ async def poll_collection(
             continue
 
         for action in event.get("actions", []):
-            category = classify_action(action)
-            if category is None:
-                continue
+            try:
+                category = classify_action(action)
+                if category is None:
+                    continue
 
-            details = extract_details(action, category)
-            text = build_alert_text(category, details, collection_address)
-            keyboard = build_alert_keyboard(details.get("nft_address"), collection_address)
+                details = extract_details(action, category)
+                text = build_alert_text(category, details, collection_address)
+                keyboard = build_alert_keyboard(details.get("nft_address"), collection_address)
 
-            await broadcast_alert(bot, text, keyboard)
-            increment_total_events(state)
+                await broadcast_alert(bot, text, keyboard)
+                increment_total_events(state)
+            except Exception as e:
+                logger.exception(
+                    "Не удалось обработать action в событии %s коллекции %s: %s",
+                    event_id, collection_address, e,
+                )
 
     # Храним только последние MAX_STORED_EVENT_IDS id, чтобы файл не рос бесконечно
     state["last_event_ids"][collection_address] = new_seen_ids[-MAX_STORED_EVENT_IDS:]

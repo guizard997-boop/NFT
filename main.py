@@ -6,7 +6,7 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiohttp import web
 
-from config import BOT_TOKEN, HEALTHCHECK_PORT
+from config import BOT_TOKEN, HEALTHCHECK_PORT, validate_config
 from handlers import router
 from monitor import monitor_loop
 
@@ -37,8 +37,7 @@ async def run_healthcheck_server() -> None:
 
 
 async def main() -> None:
-    if not BOT_TOKEN:
-        raise RuntimeError("Не задан BOT_TOKEN. Проверьте переменные окружения / файл .env")
+    validate_config()
 
     bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher()
