@@ -1,9 +1,9 @@
 """
-Трекер NFT-подарков Telegram, выставленных ЗА ЗВЁЗДЫ (официальный resale market).
-Источник: payments.getResaleStarGifts (stars_only).
+Трекер NFT-подарков Telegram за Stars (официальный resale market).
 """
 import asyncio
 import logging
+import struct
 from datetime import datetime
 
 from aiogram import Bot, Dispatcher
@@ -12,8 +12,7 @@ from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.enums import ParseMode
 from telethon import TelegramClient
 from telethon.sessions import StringSession
-from telethon.tl.functions.payments import GetResaleStarGiftsRequest
-from telethon.tl import types as tl
+from telethon.tl.tlobject import TLRequest
 
 from config import settings
 
@@ -27,19 +26,113 @@ stats = {"n": 0, "last": None}
 seen: set[str] = set()
 user_client: TelegramClient | None = None
 
+
+# ---- custom TL: payments.getResaleStarGifts (слой новее telethon 1.37) ----
+# payments.getResaleStarGifts#7a5fa236
+# flags:# sort_by_price:flags.1?true sort_by_num:flags.2?true for_craft:flags.4?true
+# stars_only:flags.5?true attributes_hash:flags.0?long gift_id:long
+# attributes:flags.3?Vector<StarGiftAttributeId> offset:string limit:int
+# = payments.ResaleStarGifts;
+
+class GetResaleStarGiftsRequest(TLRequest):
+    CONSTRUCTOR_ID = 0x7A5FA236
+    SUBCLASS_OF_ID = 0x8B4F3C8F  # arbitrary
+
+    def __init__(
+        self,
+        gift_id: int,
+        offset: str,
+        limit: int,
+        sort_by_price: bool = False,
+        sort_by_num: bool = False,
+        for_craft: bool = False,
+        stars_only: bool = True,
+        attributes_hash: int | None = None,
+        attributes: list | None = None,
+    ):
+        self.gift_id = int(gift_id)
+        self.offset = offset or ""
+        self.limit = int(limit)
+        self.sort_by_price = bool(sort_by_price)
+        self.sort_by_num = bool(sort_by_num)
+        self.for_craft = bool(for_craft)
+        self.stars_only = bool(stars_only)
+        self.attributes_hash = attributes_hash
+        self.attributes = attributes
+
+    def to_dict(self):
+        return {
+            "_": "GetResaleStarGiftsRequest",
+            "gift_id": self.gift_id,
+            "offset": self.offset,
+            "limit": self.limit,
+            "stars_only": self.stars_only,
+        }
+
+    def _bytes(self):
+        # pack TL request manually (method not in telethon 1.37 schema)
+        flags = 0
+        if self.attributes_hash is not None:
+            flags |= 1 << 0
+        if self.sort_by_price:
+            flags |= 1 << 1
+        if self.sort_by_num:
+            flags |= 1 << 2
+        if self.attributes is not None:
+            flags |= 1 << 3
+        if self.for_craft:
+            flags |= 1 << 4
+        if self.stars_only:
+            flags |= 1 << 5
+
+        def pack_string(s: str) -> bytes:
+            data = s.encode("utf-8")
+            length = len(data)
+            if length < 254:
+                out = bytes([length]) + data
+            else:
+                out = bytes([254, length & 0xFF, (length >> 8) & 0xFF, (length >> 16) & 0xFF]) + data
+            pad = (-len(out)) % 4
+            return out + (b"\x00" * pad)
+
+        b = struct.pack("<I", self.CONSTRUCTOR_ID)
+        b += struct.pack("<I", flags)
+        if self.attributes_hash is not None:
+            b += struct.pack("<q", int(self.attributes_hash))
+        b += struct.pack("<q", self.gift_id)
+        if self.attributes is not None:
+            b += struct.pack("<i", 0x1CB5C415)
+            b += struct.pack("<i", len(self.attributes))
+            for a in self.attributes:
+                if hasattr(a, "_bytes"):
+                    b += a._bytes()
+        b += pack_string(self.offset)
+        b += struct.pack("<i", self.limit)
+        return b
+
+    @classmethod
+    def from_reader(cls, reader):
+        raise NotImplementedError
+
+
 def ok(uid: int) -> bool:
     return uid in settings.whitelist_ids or uid in settings.admin_ids
 
+
 def adm(uid: int) -> bool:
     return uid in settings.admin_ids
+
 
 async def broadcast(text: str, kb=None):
     targets = set(settings.whitelist_ids) | set(settings.admin_ids)
     for uid in targets:
         try:
-            await bot.send_message(uid, text, parse_mode=ParseMode.HTML, reply_markup=kb, disable_web_page_preview=False)
+            await bot.send_message(
+                uid, text, parse_mode=ParseMode.HTML, reply_markup=kb, disable_web_page_preview=False
+            )
         except Exception as e:
             log.warning("send %s: %s", uid, e)
+
 
 def fmt_item(item: dict) -> tuple[str, InlineKeyboardMarkup | None]:
     stars = item["stars"]
@@ -58,12 +151,12 @@ def fmt_item(item: dict) -> tuple[str, InlineKeyboardMarkup | None]:
         f"🔗 <a href=\"{link}\">Открыть подарок</a>\n"
         f"⏱ Только что на маркете Telegram"
     )
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="⭐ Открыть в Telegram", url=link)]
-    ])
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text="⭐ Открыть в Telegram", url=link)]]
+    )
     return text, kb
 
-# ---- commands ----
+
 @dp.message(Command("start"))
 async def c_start(m: Message):
     if not ok(m.from_user.id):
@@ -71,11 +164,12 @@ async def c_start(m: Message):
     await m.answer(
         "Бека шлююююха\n\n"
         "⭐ <b>Stars Gift Tracker</b>\n"
-        "Только подарки за <b>Telegram Stars</b> на официальном маркете.\n"
-        "Шлёт: название, цену ⭐, продавца, ссылку.\n\n"
+        "Только подарки за <b>Telegram Stars</b>.\n"
+        "Название · цена ⭐ · продавец · ссылка\n\n"
         "/status · /help",
         parse_mode=ParseMode.HTML,
     )
+
 
 @dp.message(Command("help"))
 async def c_help(m: Message):
@@ -85,6 +179,7 @@ async def c_help(m: Message):
     if adm(m.from_user.id):
         t += "\nАдмин: /users /add_user ID /remove_user ID"
     await m.answer(t)
+
 
 @dp.message(Command("status"))
 async def c_status(m: Message):
@@ -97,6 +192,7 @@ async def c_status(m: Message):
         f"{st}\nМаркет Stars: {mt}\nОтправлено: {stats['n']}\nПоследнее: {last}\nИнтервал: {settings.poll_interval}с"
     )
 
+
 @dp.message(Command("pause"))
 async def c_pause(m: Message):
     if not ok(m.from_user.id):
@@ -104,6 +200,7 @@ async def c_pause(m: Message):
     global paused
     paused = True
     await m.answer("⏸ Пауза")
+
 
 @dp.message(Command("resume"))
 async def c_resume(m: Message):
@@ -113,6 +210,7 @@ async def c_resume(m: Message):
     paused = False
     await m.answer("▶️ Работает")
 
+
 @dp.message(Command("users"))
 async def c_users(m: Message):
     if not adm(m.from_user.id):
@@ -121,6 +219,7 @@ async def c_users(m: Message):
         f"Whitelist:\n<code>{settings.whitelist_ids}</code>\nAdmins:\n<code>{settings.admin_ids}</code>",
         parse_mode=ParseMode.HTML,
     )
+
 
 @dp.message(Command("add_user"))
 async def c_add(m: Message, command: CommandObject):
@@ -136,6 +235,7 @@ async def c_add(m: Message, command: CommandObject):
     except Exception:
         await m.answer("/add_user ID")
 
+
 @dp.message(Command("remove_user"))
 async def c_rm(m: Message, command: CommandObject):
     if not adm(m.from_user.id):
@@ -150,13 +250,13 @@ async def c_rm(m: Message, command: CommandObject):
     except Exception:
         await m.answer("/remove_user ID")
 
-# ---- Telegram Stars marketplace ----
+
 async def ensure_user_client() -> TelegramClient | None:
     global user_client
     if user_client and user_client.is_connected():
         return user_client
     if not settings.api_id or not settings.api_hash or not settings.session_string:
-        log.warning("Нет API_ID / API_HASH / SESSION_STRING — маркет Stars недоступен")
+        log.warning("Нет API_ID / API_HASH / SESSION_STRING")
         return None
     user_client = TelegramClient(
         StringSession(settings.session_string),
@@ -170,142 +270,142 @@ async def ensure_user_client() -> TelegramClient | None:
     log.info("Telethon session connected")
     return user_client
 
-def _stars_amount(obj) -> int | None:
-    """Достать число Stars из разных типов TL."""
+
+def _as_dict(obj):
+    if obj is None:
+        return {}
+    if isinstance(obj, dict):
+        return obj
+    if hasattr(obj, "to_dict"):
+        try:
+            return obj.to_dict()
+        except Exception:
+            pass
+    d = {}
+    for k in dir(obj):
+        if k.startswith("_"):
+            continue
+        try:
+            v = getattr(obj, k)
+            if callable(v):
+                continue
+            d[k] = v
+        except Exception:
+            pass
+    return d
+
+
+def _stars_from(obj) -> int | None:
     if obj is None:
         return None
     if isinstance(obj, int):
-        return obj
-    # StarsAmount / starsAmount
-    amount = getattr(obj, "amount", None)
-    if amount is not None:
-        try:
-            return int(amount)
-        except Exception:
-            pass
-    if hasattr(obj, "stars"):
-        try:
-            return int(obj.stars)
-        except Exception:
-            pass
+        return obj if obj > 0 else None
+    if isinstance(obj, (list, tuple)):
+        for x in obj:
+            s = _stars_from(x)
+            if s:
+                return s
+        return None
+    d = _as_dict(obj)
+    for key in ("amount", "stars", "value"):
+        if key in d and d[key] is not None:
+            try:
+                v = int(d[key])
+                if v > 0:
+                    return v
+            except Exception:
+                pass
     return None
 
-def _parse_gift(g) -> dict | None:
-    """Разобрать starGiftUnique / resale gift в dict."""
-    # Telethon объекты: starGiftUnique и обёртки resale
-    gift = g
-    if hasattr(g, "gift"):
-        gift = g.gift
 
-    gid = str(getattr(gift, "id", None) or getattr(g, "id", None) or "")
-    if not gid:
-        return None
+def parse_resale_result(result) -> list[dict]:
+    """Достаём список подарков из ответа (даже если тип «сырой»)."""
+    out = []
+    d = _as_dict(result)
+    gifts = d.get("gifts") or d.get("resale_gifts") or []
+    if not gifts and isinstance(result, (list, tuple)):
+        gifts = result
 
-    name = getattr(gift, "title", None) or getattr(gift, "name", None) or "Gift"
-    num = getattr(gift, "num", None)
-    slug = getattr(gift, "slug", None) or ""
-
-    # цена в stars
-    stars = None
-    for attr in ("resell_stars", "resale_stars", "stars", "resell_amount", "amount"):
-        v = getattr(gift, attr, None) or getattr(g, attr, None)
-        s = _stars_amount(v)
-        if s is not None and s > 0:
-            stars = s
-            break
-    # resell_amount может быть списком StarsAmount
-    ra = getattr(gift, "resell_amount", None) or getattr(g, "resell_amount", None)
-    if stars is None and ra is not None:
-        if isinstance(ra, (list, tuple)):
-            for x in ra:
-                s = _stars_amount(x)
-                if s:
-                    stars = s
-                    break
-        else:
-            stars = _stars_amount(ra)
-
-    if not stars or stars <= 0:
-        return None
-    if stars < settings.min_stars:
-        return None
-    if settings.max_stars and stars > settings.max_stars:
-        return None
-
-    # продавец
-    seller = "—"
-    owner = getattr(gift, "owner_id", None) or getattr(g, "owner_id", None)
-    owner_name = getattr(gift, "owner_name", None) or getattr(g, "owner_name", None)
-    owner_addr = getattr(gift, "owner_address", None)
-    if owner_name:
-        seller = f"@{owner_name}" if not str(owner_name).startswith("@") else str(owner_name)
-    elif owner is not None:
-        # PeerUser / int
-        uid = getattr(owner, "user_id", None) or getattr(owner, "channel_id", None) or owner
-        seller = f"id:{uid}"
-    elif owner_addr:
-        seller = str(owner_addr)[:16] + "…"
-
-    link = f"https://t.me/nft/{slug}" if slug else f"https://t.me/"
-
-    return {
-        "id": f"stars-{gid}-{num or 0}-{stars}",
-        "name": str(name),
-        "num": num,
-        "stars": int(stars),
-        "seller": seller,
-        "slug": slug,
-        "link": link,
-    }
-
-async def fetch_stars_listings(client: TelegramClient) -> list[dict]:
-    """Тянем resale подарки только за Stars."""
-    out: list[dict] = []
-    try:
-        # gift_id=0 часто = все типы; offset пагинация
-        # flags: stars_only
-        result = await client(GetResaleStarGiftsRequest(
-            gift_id=0,
-            offset="",
-            limit=50,
-            stars_only=True,
-        ))
-    except TypeError:
-        # старая telethon без stars_only — пробуем без флага и фильтруем сами
-        try:
-            result = await client(GetResaleStarGiftsRequest(
-                gift_id=0,
-                offset="",
-                limit=50,
-            ))
-        except Exception as e:
-            log.warning("GetResaleStarGifts: %s", e)
-            return []
-    except Exception as e:
-        log.warning("GetResaleStarGifts: %s", e)
-        return []
-
-    gifts = getattr(result, "gifts", None) or getattr(result, "resale_gifts", None) or []
-    users = {u.id: u for u in (getattr(result, "users", None) or [])}
+    users = {}
+    for u in d.get("users") or []:
+        ud = _as_dict(u)
+        uid = ud.get("id")
+        if uid:
+            users[int(uid)] = ud
 
     for g in gifts:
-        item = _parse_gift(g)
-        if not item:
+        gd = _as_dict(g)
+        # иногда gift вложен
+        inner = _as_dict(gd.get("gift")) if gd.get("gift") else gd
+
+        gid = inner.get("id") or gd.get("id")
+        if not gid:
             continue
-        # обогатить продавца из users
-        owner = getattr(getattr(g, "gift", g), "owner_id", None)
-        if owner is not None:
-            uid = getattr(owner, "user_id", None) or (owner if isinstance(owner, int) else None)
-            if uid and uid in users:
-                u = users[uid]
-                uname = getattr(u, "username", None)
-                if uname:
-                    item["seller"] = f"@{uname}"
+        name = inner.get("title") or inner.get("name") or gd.get("title") or "Gift"
+        num = inner.get("num") or gd.get("num")
+        slug = inner.get("slug") or gd.get("slug") or ""
+
+        stars = None
+        for key in ("resell_stars", "resale_stars", "stars", "resell_amount", "amount"):
+            stars = _stars_from(inner.get(key) if key in inner else gd.get(key))
+            if stars:
+                break
+        if not stars:
+            continue
+        if stars < settings.min_stars:
+            continue
+        if settings.max_stars and stars > settings.max_stars:
+            continue
+
+        seller = "—"
+        owner_name = inner.get("owner_name") or gd.get("owner_name")
+        if owner_name:
+            seller = f"@{owner_name}" if not str(owner_name).startswith("@") else str(owner_name)
+        else:
+            owner = inner.get("owner_id") or gd.get("owner_id")
+            od = _as_dict(owner) if owner is not None and not isinstance(owner, int) else {}
+            uid = od.get("user_id") or (owner if isinstance(owner, int) else None)
+            if uid and int(uid) in users:
+                u = users[int(uid)]
+                if u.get("username"):
+                    seller = f"@{u['username']}"
                 else:
-                    fn = (getattr(u, "first_name", "") or "") + " " + (getattr(u, "last_name", "") or "")
-                    item["seller"] = fn.strip() or f"id:{uid}"
-        out.append(item)
+                    seller = (f"{u.get('first_name') or ''} {u.get('last_name') or ''}").strip() or f"id:{uid}"
+            elif uid:
+                seller = f"id:{uid}"
+
+        link = f"https://t.me/nft/{slug}" if slug else "https://t.me/"
+        out.append(
+            {
+                "id": f"stars-{gid}-{num or 0}-{stars}",
+                "name": str(name),
+                "num": num,
+                "stars": int(stars),
+                "seller": seller,
+                "slug": slug,
+                "link": link,
+            }
+        )
     return out
+
+
+async def fetch_stars_listings(client: TelegramClient) -> list[dict]:
+    req = GetResaleStarGiftsRequest(
+        gift_id=0,
+        offset="",
+        limit=50,
+        stars_only=True,
+        sort_by_price=False,
+        sort_by_num=False,
+    )
+    try:
+        result = await client(req)
+        return parse_resale_result(result)
+    except Exception as e:
+        # если сервер не принял кастомный конструктор / слой — лог
+        log.warning("GetResaleStarGifts failed: %s", e)
+        return []
+
 
 async def tracker_loop():
     log.info("Stars tracker starting…")
@@ -330,9 +430,11 @@ async def tracker_loop():
             log.exception(e)
         await asyncio.sleep(settings.poll_interval)
 
+
 async def main():
     asyncio.create_task(tracker_loop())
     await dp.start_polling(bot)
+
 
 if __name__ == "__main__":
     asyncio.run(main())
