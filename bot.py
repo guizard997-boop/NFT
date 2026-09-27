@@ -15,9 +15,14 @@ from telethon.sessions import StringSession
 from telethon.tl.tlobject import TLRequest
 
 try:
-    from telethon.tl.functions.payments import GetStarGiftsRequest
+    from telethon.tl.functions.payments import GetStarGiftsRequest, GetResaleStarGiftsRequest as NativeResale
 except ImportError:
-    GetStarGiftsRequest = None
+    try:
+        from telethon.tl.functions.payments import GetStarGiftsRequest
+        NativeResale = None
+    except ImportError:
+        GetStarGiftsRequest = None
+        NativeResale = None
 
 from config import settings
 
@@ -491,14 +496,30 @@ async def fetch_stars_listings(client: TelegramClient) -> list[dict]:
     # --- resale по типам (ограничим чтобы не флудить) ---
     for gid in gift_ids[:25]:
         try:
-            req = GetResaleStarGiftsRequest(
-                gift_id=gid,
-                offset="",
-                limit=30,
-                stars_only=True,
-                sort_by_price=True,
-            )
-            result = await client(req)
+            if NativeResale is not None:
+                try:
+                    result = await client(NativeResale(
+                        gift_id=gid,
+                        offset="",
+                        limit=30,
+                        stars_only=True,
+                        sort_by_price=True,
+                    ))
+                except TypeError:
+                    result = await client(NativeResale(
+                        gift_id=gid,
+                        offset="",
+                        limit=30,
+                    ))
+            else:
+                req = GetResaleStarGiftsRequest(
+                    gift_id=gid,
+                    offset="",
+                    limit=30,
+                    stars_only=True,
+                    sort_by_price=True,
+                )
+                result = await client(req)
             items = parse_resale_result(result)
             out.extend(items)
         except Exception as e:
