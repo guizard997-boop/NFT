@@ -155,10 +155,10 @@ def fmt_item(item: dict) -> tuple[str, InlineKeyboardMarkup | None]:
     title = f"{name}" + (f" #{num}" if num else "")
     text = (
         f"⭐ <b>ПРОДАЖА ЗА STARS</b>\n\n"
-        f"🎁 <b>{title}</b>\n"
-        f"💰 Цена: <b>{stars}</b> ⭐\n"
-        f"👤 Продавец: {seller}\n"
-        f"🔗 <a href=\"{link}\">Открыть подарок</a>\n"
+        f"? <b>{title}</b>\n"
+        f"? Цена: <b>{stars}</b> ⭐\n"
+        f"? Продавец: {seller}\n"
+        f"? <a href=\"{link}\">Открыть подарок</a>\n"
         f"⏱ Только что на маркете Telegram"
     )
     kb = InlineKeyboardMarkup(
@@ -195,7 +195,7 @@ async def c_help(m: Message):
 async def c_status(m: Message):
     if not ok(m.from_user.id):
         return
-    st = "⏸ пауза" if paused else "🟢 работает"
+    st = "⏸ пауза" if paused else "? работает"
     last = stats["last"].strftime("%H:%M:%S") if stats["last"] else "—"
     mt = "user-session OK" if (user_client and user_client.is_connected()) else "нет сессии"
     await m.answer(
