@@ -1,3 +1,0 @@
-aiogram==3.13.1
-# свежий слой TL — иначе getStarGifts падает на неизвестных конструкторах
-telethon @ git+https://github.com/LonamiWebs/Telethon.git
