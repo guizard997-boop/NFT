@@ -6,13 +6,12 @@ def _ids(v):
     v = str(v).strip().strip("[]")
     return [int(x.strip()) for x in v.split(",") if x.strip().lstrip("-").isdigit()]
 
-# === ВШИТО (env может переопределить) ===
-_DEFAULT_BOT = "8793921623:AAEl76MKZMDyoJGNTvXeqGdAwQ15So7MBgg"
+_DEFAULT_BOT = "8925444240:AAHwFeBYekzt4IsLj3rsK9HvG5vGt9AK0jI"
 _DEFAULT_ADMINS = "6429739316,8298834738"
 _DEFAULT_WHITELIST = "6429739316,8298834738"
 _DEFAULT_API_ID = "34757056"
 _DEFAULT_API_HASH = "9145b7ffd164786c47c3af0e42d1be9c"
-_DEFAULT_SESSION = """1ApWapzMBu1-Qdm8YXt0gIXAQotw_LGoN3gZA44I9tPCFLu02z_Tw0HDp7A2UOsmH1AtdB1KMIR3KSJ2euw60nABW7a_mA1r-MF3fNQdSFLcLnVF2MNNIhPEYLrZ9RowFGCv3jYPC6Iwf05B5OpLaEAtBXJ2REY1hA4Jyvu0w6EkR5unHpMggIWLZQ7-fCwKHi9y62EneDeQ2x1sD5Dw5-PkTKaEf0BkN-U5Hqb_Sw-DVxUozL90HriuM24raed8iwVz7o8a_c-GqeSxKpD60_Wu8Y63D07n13xQwnG6gygZbNZ1LWcm0P5e5tKPu3IVYYRSu_qZAqIdIW7ZFgEtAt3VsdPbTwx8="""
+_DEFAULT_SESSION = "1ApWapzMBu6muVnHqrqkg2OA1ppQF3-Gm0hcKkhtj4v3So0-PIQ6xcdi8nEdpK6WAuO9j18SSxPDEc0A4BbU7m8koQZL2D6YA9_YOwJ8Z1cQh7DrmvQo97CPow127yGjNFRvj9uUbK42iJlM1i8AhvC9JDgmqJSu7c2UaaQAUNYGD6dpL3JjSryJ7v_oSAWxewO557bIAnr7jEyufRppGKhXFsUwmss2jF4GjlEWsiG09xlUS7w_xCXPRBpLvpjmjLUKtoMy4_u-XlwaHUh_uRDnnccfBEcYgNouFwu0yRlTwynHkgqdPTOGlSWc-wlbZceSaA8zLk_5lngDwP9gHGHZuhp6IS4I="
 
 def _norm_session(s: str) -> str:
     s = (s or "").strip().strip('"').strip("'")
