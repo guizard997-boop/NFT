@@ -22,7 +22,7 @@ class S:
         self.bot_token = os.getenv("BOT_TOKEN", _DEFAULT_BOT)
         self.admin_ids = _ids(os.getenv("ADMIN_IDS", _DEFAULT_ADMINS))
         self.whitelist_ids = _ids(os.getenv("WHITELIST_IDS", _DEFAULT_WHITELIST))
-        self.poll_interval = int(os.getenv("POLL_INTERVAL", "25"))
+        self.poll_interval = int(os.getenv("POLL_INTERVAL", "10"))
         self.api_id = int(os.getenv("API_ID", _DEFAULT_API_ID) or 0)
         self.api_hash = os.getenv("API_HASH", _DEFAULT_API_HASH).strip()
         self.session_string = _norm_session(os.getenv("SESSION_STRING", _DEFAULT_SESSION))

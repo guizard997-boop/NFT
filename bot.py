@@ -35,6 +35,8 @@ paused = False
 stats = {"n": 0, "last": None}
 seen: set[str] = set()
 user_client: TelegramClient | None = None
+last_send_ts: float = 0.0
+SEND_COOLDOWN = 10  # сек между уведомлениями
 
 
 # ---- custom TL: payments.getResaleStarGifts (слой новее telethon 1.37) ----
@@ -531,28 +533,41 @@ async def fetch_stars_listings(client: TelegramClient) -> list[dict]:
 
 
 async def tracker_loop():
-
-    log.info("Stars tracker starting…")
+    global last_send_ts
+    import time
+    log.info("Stars tracker starting… cooldown=%ss", SEND_COOLDOWN)
     while True:
         try:
             if not paused:
                 client = await ensure_user_client()
                 if client:
                     items = await fetch_stars_listings(client)
+                    fresh = []
                     for x in items:
                         if x["id"] in seen:
                             continue
                         seen.add(x["id"])
-                        text, kb = fmt_item(x)
-                        await broadcast(text, kb)
-                        stats["n"] += 1
-                        stats["last"] = datetime.now()
-                        log.info("sent %s %s⭐ %s", x["name"], x["stars"], x["seller"])
+                        fresh.append(x)
                     if len(seen) > 8000:
                         seen.clear()
+
+                    if fresh:
+                        now = time.time()
+                        elapsed = now - last_send_ts
+                        if elapsed < SEND_COOLDOWN:
+                            log.info("cooldown, skip %s new", len(fresh))
+                        else:
+                            # одно сообщение раз в 10 сек
+                            x = sorted(fresh, key=lambda z: z.get("stars") or 10**9)[0]
+                            text, kb = fmt_item(x)
+                            await broadcast(text, kb)
+                            last_send_ts = time.time()
+                            stats["n"] += 1
+                            stats["last"] = datetime.now()
+                            log.info("sent %s %s⭐ %s", x["name"], x["stars"], x["seller"])
         except Exception as e:
             log.exception(e)
-        await asyncio.sleep(settings.poll_interval)
+        await asyncio.sleep(10)
 
 
 async def main():
