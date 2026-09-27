@@ -286,13 +286,20 @@ async def ensure_user_client() -> TelegramClient | None:
     if not settings.api_id or not settings.api_hash or not settings.session_string:
         log.warning("Нет API_ID / API_HASH / SESSION_STRING")
         return None
-    ss = "".join((settings.session_string or "").split())
-    if ss:
-        ss = ss + ("=" * ((4 - len(ss) % 4) % 4))
+    ss = settings.session_string or ""
+    if not ss:
+        log.warning("SESSION_STRING пустой")
+        return None
+    log.info("SESSION_STRING len=%s", len(ss))
     try:
         session = StringSession(ss)
     except Exception as e:
-        log.error("SESSION_STRING битая (padding/обрезка): %s", e)
+        log.error(
+            "SESSION_STRING битая: %s | len=%s. "
+            "Вставь string из session_string.txt ОДНОЙ линией, без кавычек. "
+            "Не добавляй символы вручную.",
+            e, len(ss),
+        )
         return None
     user_client = TelegramClient(
         session,
