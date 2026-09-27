@@ -8,7 +8,7 @@ from datetime import datetime
 
 from aiogram import Bot, Dispatcher
 from aiogram.filters import Command, CommandObject
-from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton, BotCommand
 from aiogram.enums import ParseMode
 from telethon import TelegramClient
 from telethon.sessions import StringSession
@@ -135,6 +135,16 @@ def adm(uid: int) -> bool:
     return uid in settings.admin_ids
 
 
+def menu_kb(is_admin: bool = False) -> ReplyKeyboardMarkup:
+    rows = [
+        [KeyboardButton(text="/status"), KeyboardButton(text="/help")],
+        [KeyboardButton(text="/pause"), KeyboardButton(text="/resume")],
+    ]
+    if is_admin:
+        rows.append([KeyboardButton(text="/users"), KeyboardButton(text="/test")])
+    return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True)
+
+
 async def broadcast(text: str, kb=None):
     targets = set(settings.whitelist_ids) | set(settings.admin_ids)
     for uid in targets:
@@ -151,21 +161,29 @@ def fmt_item(item: dict) -> tuple[str, InlineKeyboardMarkup | None]:
     name = item["name"]
     num = item.get("num")
     seller = item.get("seller") or "—"
-    slug = item.get("slug") or ""
-    link = item.get("link") or (f"https://t.me/nft/{slug}" if slug else "https://t.me/")
+    slug = (item.get("slug") or "").strip()
+    link = (item.get("link") or "").strip()
+    if slug and (not link or link.rstrip("/") == "https://t.me"):
+        link = f"https://t.me/nft/{slug}"
+    # Telegram требует валидный http(s) URL для url-кнопки
+    valid_url = link.startswith("https://") and len(link) > 12 and "t.me/" in link and link.rstrip("/") != "https://t.me"
 
     title = f"{name}" + (f" #{num}" if num else "")
     text = (
         f"⭐ <b>ПРОДАЖА ЗА STARS</b>\n\n"
-        f"🎁 <b>{title}</b>\n"
-        f"💰 Цена: <b>{stars}</b> ⭐\n"
-        f"👤 Продавец: {seller}\n"
-        f"🔗 <a href=\"{link}\">Открыть подарок</a>\n"
-        f"⏱ Только что на маркете Telegram"
+        f" <b>{title}</b>\n"
+        f" Цена: <b>{stars}</b> ⭐\n"
+        f" Продавец: {seller}\n"
     )
-    kb = InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text="⭐ Открыть в Telegram", url=link)]]
-    )
+    if valid_url:
+        text += f" <a href=\"{link}\">Открыть подарок</a>\n"
+    text += "⏱ Только что на маркете Telegram"
+
+    kb = None
+    if valid_url:
+        kb = InlineKeyboardMarkup(
+            inline_keyboard=[[InlineKeyboardButton(text="⭐ Открыть в Telegram", url=link)]]
+        )
     return text, kb
 
 
@@ -178,8 +196,9 @@ async def c_start(m: Message):
         "⭐ <b>Stars Gift Tracker</b>\n"
         "Только подарки за <b>Telegram Stars</b>.\n"
         "Название · цена ⭐ · продавец · ссылка\n\n"
-        "/status · /help",
+        "Кнопки снизу или /status /help",
         parse_mode=ParseMode.HTML,
+        reply_markup=menu_kb(adm(m.from_user.id)),
     )
 
 
@@ -197,7 +216,7 @@ async def c_help(m: Message):
 async def c_status(m: Message):
     if not ok(m.from_user.id):
         return
-    st = "⏸ пауза" if paused else "🟢 работает"
+    st = "⏸ пауза" if paused else " работает"
     last = stats["last"].strftime("%H:%M:%S") if stats["last"] else "—"
     mt = "user-session OK" if (user_client and user_client.is_connected()) else "нет сессии"
     await m.answer(
@@ -571,6 +590,18 @@ async def tracker_loop():
 
 
 async def main():
+    try:
+        await bot.set_my_commands([
+            BotCommand(command="start", description="Старт"),
+            BotCommand(command="status", description="Статус"),
+            BotCommand(command="pause", description="Пауза"),
+            BotCommand(command="resume", description="Продолжить"),
+            BotCommand(command="help", description="Помощь"),
+            BotCommand(command="test", description="Тест маркета (админ)"),
+            BotCommand(command="users", description="Список (админ)"),
+        ])
+    except Exception as e:
+        log.warning("set_my_commands: %s", e)
     asyncio.create_task(tracker_loop())
     await dp.start_polling(bot)
 
