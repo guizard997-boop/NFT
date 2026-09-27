@@ -170,13 +170,13 @@ def fmt_item(item: dict) -> tuple[str, InlineKeyboardMarkup | None]:
 
     title = f"{name}" + (f" #{num}" if num else "")
     text = (
-        f"⭐ <b>Бека шлююююха</b>\n\n"
-        f" <b>{title}</b>\n"
-        f" Цена: <b>{stars}</b> ⭐\n"
-        f" Продавец: {seller}\n"
+        f"⭐ <b>ПРОДАЖА ЗА STARS</b>\n\n"
+        f"? <b>{title}</b>\n"
+        f"? Цена: <b>{stars}</b> ⭐\n"
+        f"? Продавец: {seller}\n"
     )
     if valid_url:
-        text += f" <a href=\"{link}\">Открыть подарок</a>\n"
+        text += f"? <a href=\"{link}\">Открыть подарок</a>\n"
     text += "⏱ Только что на маркете Telegram"
 
     kb = None
@@ -216,7 +216,7 @@ async def c_help(m: Message):
 async def c_status(m: Message):
     if not ok(m.from_user.id):
         return
-    st = "⏸ пауза" if paused else " работает"
+    st = "⏸ пауза" if paused else "? работает"
     last = stats["last"].strftime("%H:%M:%S") if stats["last"] else "—"
     mt = "user-session OK" if (user_client and user_client.is_connected()) else "нет сессии"
     await m.answer(
@@ -515,7 +515,8 @@ async def fetch_stars_listings(client: TelegramClient) -> list[dict]:
     log.info("gift_ids for resale: %s", len(gift_ids))
 
     # --- resale по типам (ограничим чтобы не флудить) ---
-    for gid in gift_ids[:25]:
+    for i, gid in enumerate(gift_ids[:15]):
+        await asyncio.sleep(0)  # отдать цикл командам бота
         try:
             if NativeResale is not None:
                 try:
@@ -555,12 +556,21 @@ async def tracker_loop():
     global last_send_ts
     import time
     log.info("Stars tracker starting… cooldown=%ss", SEND_COOLDOWN)
+    # небольшая пауза при старте — сначала поднимается polling команд
+    await asyncio.sleep(2)
     while True:
         try:
             if not paused:
                 client = await ensure_user_client()
                 if client:
-                    items = await fetch_stars_listings(client)
+                    # fetch в фоне, с таймаутом — чтобы не залипать
+                    try:
+                        items = await asyncio.wait_for(fetch_stars_listings(client), timeout=45)
+                    except asyncio.TimeoutError:
+                        log.warning("fetch timeout")
+                        items = []
+                    await asyncio.sleep(0)
+
                     fresh = []
                     for x in items:
                         if x["id"] in seen:
@@ -572,24 +582,31 @@ async def tracker_loop():
 
                     if fresh:
                         now = time.time()
-                        elapsed = now - last_send_ts
-                        if elapsed < SEND_COOLDOWN:
+                        if now - last_send_ts < SEND_COOLDOWN:
                             log.info("cooldown, skip %s new", len(fresh))
                         else:
-                            # одно сообщение раз в 10 сек
                             x = sorted(fresh, key=lambda z: z.get("stars") or 10**9)[0]
                             text, kb = fmt_item(x)
-                            await broadcast(text, kb)
-                            last_send_ts = time.time()
-                            stats["n"] += 1
-                            stats["last"] = datetime.now()
-                            log.info("sent %s %s⭐ %s", x["name"], x["stars"], x["seller"])
+                            try:
+                                await broadcast(text, kb)
+                                last_send_ts = time.time()
+                                stats["n"] += 1
+                                stats["last"] = datetime.now()
+                                log.info("sent %s %s⭐ %s", x["name"], x["stars"], x["seller"])
+                            except Exception as e:
+                                log.warning("broadcast: %s", e)
         except Exception as e:
             log.exception(e)
-        await asyncio.sleep(10)
+        # всегда отдаём цикл event loop перед следующей итерацией
+        await asyncio.sleep(max(10, int(settings.poll_interval)))
+
 
 
 async def main():
+    try:
+        await bot.delete_webhook(drop_pending_updates=True)
+    except Exception as e:
+        log.warning("delete_webhook: %s", e)
     try:
         await bot.set_my_commands([
             BotCommand(command="start", description="Старт"),
@@ -602,8 +619,19 @@ async def main():
         ])
     except Exception as e:
         log.warning("set_my_commands: %s", e)
-    asyncio.create_task(tracker_loop())
-    await dp.start_polling(bot)
+
+    async def _start_tracker_later():
+        await asyncio.sleep(3)  # сначала оживают команды
+        await tracker_loop()
+
+    asyncio.create_task(_start_tracker_later())
+    # один polling — drop_pending чтобы не было хвоста updates
+    await dp.start_polling(
+        bot,
+        drop_pending_updates=True,
+        handle_signals=True,
+        close_bot_session=True,
+    )
 
 
 if __name__ == "__main__":
