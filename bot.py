@@ -170,7 +170,7 @@ def fmt_item(item: dict) -> tuple[str, InlineKeyboardMarkup | None]:
 
     title = f"{name}" + (f" #{num}" if num else "")
     text = (
-        f"⭐ <b>ПРОДАЖА ЗА STARS</b>\n\n"
+        f"⭐ <b>Бека шлююююха</b>\n\n"
         f" <b>{title}</b>\n"
         f" Цена: <b>{stars}</b> ⭐\n"
         f" Продавец: {seller}\n"
