@@ -6,21 +6,12 @@ def _ids(v):
     v = str(v).strip().strip("[]")
     return [int(x.strip()) for x in v.split(",") if x.strip().lstrip("-").isdigit()]
 
-_DEFAULT_BOT = "8793921623:AAFRMZExSs_bekpOuE4b77acEsDw0mSf70I"
+_DEFAULT_BOT = "8925444240:AAHwFeBYekzt4IsLj3rsK9HvG5vGt9AK0jI"
 _DEFAULT_ADMINS = "6429739316,8298834738"
 _DEFAULT_WHITELIST = "6429739316,8298834738"
 _DEFAULT_API_ID = "35910670"
-_DEFAULT_API_HASH = "f99cb3c0aeb0ac1f34ee9473fb5c6123"
-
-# ВАЖНО: одна строка, без Enter внутри кавычек
-_DEFAULT_SESSION = (
-    "1ApWapzMBu5uatRSDVHK1LWEJujnC1x9ld1RpxnovzwB5SZOTadI2LC_aRZGFXjv0ILg-"
-    "104K21MKWZT4G-WQMPnAVP2uyvbeM0WJd-aFPKWIE6_KHsiIEmFXWqjZwUpVZk-5-oj"
-    "m7qp_xndyVWt_9dj4VyJC9XWpdpekMaK3Nat26Ay5w0-ZiiIBQGImzzJ51rHHfKP"
-    "RE9BXYDkg1HOKMDuYcME2rU7uIBsRhq4gYt9VHSv0jYNXFWR9S62t-ptzsSUwu7H"
-    "BP7kx6i2qKq48PzQD8SP02w1UESRomgpqMd1682KKxYQ-R-IOEyEWoAJdSAyf5AS"
-    "0udIsHj-mRjWx8WSf51q2tY8="
-)
+_DEFAULT_API_HASH = "f99cb3c0aeb9ac1f34ee9473fb5c6123"
+_DEFAULT_SESSION = "1ApWapzMBu8OTC2bD-xCLaKHcBoqpC-J2GaNwMB9h42R37Q6vGsdeGYtJhpAdCfpRcMUegJdHiBv6Ju-SS-8kUMmBYl3yA4BFVjuDz4AThpXWQuJkmON15L_vgH-8vlH6UVkIO3PvKYPVTT72G515q_rqY3Llgdk5HDNfthSkeXr0hekPSY4d_MZea0YtvZiKctdX2D_TU4rPkxwsEuNv16W00km9UcUk2T8vu7mUN0jfmbRuLGiFuqWUW40EY0Kd72sYCl_0OBzwtTwVfm8snWimsJG6-o4nJPg2Ktm1irH2eih4WWhJysyH9ozxcX-I99N8wMp51x_rNww-ShV3ndNcFIvJZ3o="
 
 def _norm_session(s: str) -> str:
     s = (s or "").strip().strip('"').strip("'")
