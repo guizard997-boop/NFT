@@ -6,7 +6,7 @@ def _ids(v):
     v = str(v).strip().strip("[]")
     return [int(x.strip()) for x in v.split(",") if x.strip().lstrip("-").isdigit()]
 
-_DEFAULT_BOT = "8793921623:AAG1a2U_mC6TZF2e90ksFHx-oMTBwG6l6MQ"
+_DEFAULT_BOT = "8925444240:AAHwFeBYekzt4IsLj3rsK9HvG5vGt9AK0jI"
 _DEFAULT_ADMINS = "6429739316,8298834738"
 _DEFAULT_WHITELIST = "6429739316,8298834738"
 _DEFAULT_API_ID = "34757056"
