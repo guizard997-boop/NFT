@@ -6,7 +6,7 @@ def _ids(v):
     v = str(v).strip().strip("[]")
     return [int(x.strip()) for x in v.split(",") if x.strip().lstrip("-").isdigit()]
 
-_DEFAULT_BOT = "8793921623:AAG1a2U_mC6TZF2e90ksFHx-oMTBwG6l6MQ"
+_DEFAULT_BOT = "8925444240:AAHwFeBYekzt4IsLj3rsK9HvG5vGt9AK0jI"
 _DEFAULT_ADMINS = "6429739316,8298834738"
 _DEFAULT_WHITELIST = "6429739316,8298834738"
 _DEFAULT_API_ID = "34757056"
@@ -22,7 +22,7 @@ class S:
         self.bot_token = os.getenv("BOT_TOKEN", _DEFAULT_BOT)
         self.admin_ids = _ids(os.getenv("ADMIN_IDS", _DEFAULT_ADMINS))
         self.whitelist_ids = _ids(os.getenv("WHITELIST_IDS", _DEFAULT_WHITELIST))
-        self.poll_interval = int(os.getenv("POLL_INTERVAL", "10"))
+        self.poll_interval = int(os.getenv("POLL_INTERVAL", "5"))
         self.api_id = int(os.getenv("API_ID", _DEFAULT_API_ID) or 0)
         self.api_hash = os.getenv("API_HASH", _DEFAULT_API_HASH).strip()
         self.session_string = _norm_session(os.getenv("SESSION_STRING", _DEFAULT_SESSION))
