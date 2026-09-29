@@ -132,6 +132,42 @@ def ok(uid: int) -> bool:
 def adm(uid: int) -> bool:
     return uid in settings.admin_ids
 
+def ton_price_of(stars: float) -> float:
+    return float(stars or 0) * float(settings.stars_to_ton)
+
+
+def topic_for_item(item: dict) -> int | None:
+    """Выбрать message_thread_id по цене в TON (и чёрному фону, если есть)."""
+    if not settings.group_id:
+        return None
+    # чёрный фон — если парсер когда-нибудь отдаст флаг
+    if item.get("black_bg") and settings.topic_black:
+        return settings.topic_black
+
+    ton = ton_price_of(item.get("stars") or 0)
+    if ton < 3 and settings.topic_under_3:
+        return settings.topic_under_3
+    if ton < 10 and settings.topic_3_10:
+        return settings.topic_3_10
+    if ton < 30 and settings.topic_10_30:
+        return settings.topic_10_30
+    if ton < 50 and settings.topic_30_50:
+        return settings.topic_30_50
+    if ton < 100 and settings.topic_50_100:
+        return settings.topic_50_100
+    if settings.topic_100_plus:
+        return settings.topic_100_plus
+    # fallback: первая настроенная тема
+    for tid in (
+        settings.topic_under_3, settings.topic_3_10, settings.topic_10_30,
+        settings.topic_30_50, settings.topic_50_100, settings.topic_100_plus,
+    ):
+        if tid:
+            return tid
+    return None
+
+
+
 
 def menu_kb(is_admin: bool = False) -> ReplyKeyboardMarkup:
     rows = [
@@ -143,23 +179,48 @@ def menu_kb(is_admin: bool = False) -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True)
 
 
-async def broadcast(text: str, kb=None):
-    targets = set(settings.whitelist_ids) | set(settings.admin_ids)
+async def broadcast(text: str, kb=None, item: dict | None = None):
     flood_err = None
-    for uid in targets:
+
+    # 1) В топик группы-форума
+    if settings.group_id and item is not None:
+        thread_id = topic_for_item(item)
         try:
-            await bot.send_message(
-                uid, text, parse_mode=ParseMode.HTML, reply_markup=kb, disable_web_page_preview=False
+            kwargs = dict(
+                chat_id=settings.group_id,
+                text=text,
+                parse_mode=ParseMode.HTML,
+                reply_markup=kb,
+                disable_web_page_preview=False,
             )
+            if thread_id:
+                kwargs["message_thread_id"] = thread_id
+            await bot.send_message(**kwargs)
+            log.info("group topic=%s ok", thread_id)
         except Exception as e:
             err = str(e)
-            if "chat not found" in err.lower():
-                log.warning("send %s: chat not found (убери ID из WHITELIST)", uid)
-            elif "Flood" in err or "Retry in" in err:
-                log.warning("send %s: %s", uid, e)
+            log.warning("group send: %s", e)
+            if "Flood" in err or "Retry in" in err:
                 flood_err = e
-            else:
-                log.warning("send %s: %s", uid, e)
+
+    # 2) В ЛС (если включено)
+    if settings.dm_enabled:
+        targets = set(settings.whitelist_ids) | set(settings.admin_ids)
+        for uid in targets:
+            try:
+                await bot.send_message(
+                    uid, text, parse_mode=ParseMode.HTML, reply_markup=kb, disable_web_page_preview=False
+                )
+            except Exception as e:
+                err = str(e)
+                if "chat not found" in err.lower():
+                    log.warning("send %s: chat not found (убери ID из WHITELIST)", uid)
+                elif "Flood" in err or "Retry in" in err:
+                    log.warning("send %s: %s", uid, e)
+                    flood_err = e
+                else:
+                    log.warning("send %s: %s", uid, e)
+
     if flood_err:
         raise flood_err
 
@@ -223,6 +284,29 @@ async def c_start(m: Message):
     )
 
 
+
+@dp.message(Command("id"))
+async def c_id(m: Message):
+    """Показать chat_id и topic id — пиши команду ВНУТРИ нужной темы."""
+    chat = m.chat
+    thread = getattr(m, "message_thread_id", None)
+    lines = [
+        f"chat_id: <code>{chat.id}</code>",
+        f"type: {chat.type}",
+        f"title: {chat.title or '—'}",
+    ]
+    if thread:
+        lines.append(f"topic (message_thread_id): <code>{thread}</code>")
+        lines.append("")
+        lines.append("В Railway:")
+        lines.append(f"GROUP_ID={chat.id}")
+        lines.append(f"TOPIC_...={thread}")
+    else:
+        lines.append("topic: нет (ты не в теме форума)")
+        lines.append("Открой тему → напиши /id внутри темы")
+    await m.answer("\n".join(lines), parse_mode=ParseMode.HTML)
+
+
 @dp.message(Command("help"))
 async def c_help(m: Message):
     if not ok(m.from_user.id):
@@ -241,7 +325,7 @@ async def c_status(m: Message):
     last = stats["last"].strftime("%H:%M:%S") if stats["last"] else "—"
     mt = "user-session OK" if (user_client and user_client.is_connected()) else "нет сессии"
     await m.answer(
-        f"{st}\nМаркет Stars: {mt}\nОтправлено: {stats['n']}\nПоследнее: {last}\nОпрос: {settings.poll_interval}с · Отправка: {settings.send_interval}с"
+        f"{st}\nМаркет Stars: {mt}\nОтправлено: {stats['n']}\nПоследнее: {last}\nОпрос: {settings.poll_interval}с · Отправка: {settings.send_interval}с\nГруппа: {settings.group_id or "—"}"
     )
 
 
@@ -598,7 +682,7 @@ async def tracker_loop():
                         seen.add(x["id"])
                         text, kb = fmt_item(x)
                         try:
-                            await broadcast(text, kb)
+                            await broadcast(text, kb, item=x)
                             stats["n"] += 1
                             stats["last"] = datetime.now()
                             log.info("sent %s %s⭐ %s", x["name"], x["stars"], x["seller"])
