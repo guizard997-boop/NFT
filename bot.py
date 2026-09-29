@@ -35,8 +35,6 @@ paused = False
 stats = {"n": 0, "last": None}
 seen: set[str] = set()
 user_client: TelegramClient | None = None
-last_send_ts: float = 0.0
-SEND_COOLDOWN = 10  # сек между уведомлениями
 
 
 # ---- custom TL: payments.getResaleStarGifts (слой новее telethon 1.37) ----
@@ -147,13 +145,23 @@ def menu_kb(is_admin: bool = False) -> ReplyKeyboardMarkup:
 
 async def broadcast(text: str, kb=None):
     targets = set(settings.whitelist_ids) | set(settings.admin_ids)
+    flood_err = None
     for uid in targets:
         try:
             await bot.send_message(
                 uid, text, parse_mode=ParseMode.HTML, reply_markup=kb, disable_web_page_preview=False
             )
         except Exception as e:
-            log.warning("send %s: %s", uid, e)
+            err = str(e)
+            if "chat not found" in err.lower():
+                log.warning("send %s: chat not found (убери ID из WHITELIST)", uid)
+            elif "Flood" in err or "Retry in" in err:
+                log.warning("send %s: %s", uid, e)
+                flood_err = e
+            else:
+                log.warning("send %s: %s", uid, e)
+    if flood_err:
+        raise flood_err
 
 
 def fmt_item(item: dict) -> tuple[str, InlineKeyboardMarkup | None]:
@@ -233,7 +241,7 @@ async def c_status(m: Message):
     last = stats["last"].strftime("%H:%M:%S") if stats["last"] else "—"
     mt = "user-session OK" if (user_client and user_client.is_connected()) else "нет сессии"
     await m.answer(
-        f"{st}\nМаркет Stars: {mt}\nОтправлено: {stats['n']}\nПоследнее: {last}\nИнтервал: {settings.poll_interval}с"
+        f"{st}\nМаркет Stars: {mt}\nОтправлено: {stats['n']}\nПоследнее: {last}\nОпрос: {settings.poll_interval}с · Отправка: {settings.send_interval}с"
     )
 
 
@@ -566,7 +574,11 @@ async def fetch_stars_listings(client: TelegramClient) -> list[dict]:
 
 
 async def tracker_loop():
-    log.info("Stars tracker starting… (без лимита 10с)")
+    log.info(
+        "Stars tracker starting… poll=%ss send_interval=%ss",
+        settings.poll_interval,
+        settings.send_interval,
+    )
     await asyncio.sleep(2)
     while True:
         try:
@@ -591,14 +603,24 @@ async def tracker_loop():
                             stats["last"] = datetime.now()
                             log.info("sent %s %s⭐ %s", x["name"], x["stars"], x["seller"])
                         except Exception as e:
+                            err = str(e)
                             log.warning("broadcast: %s", e)
-                        await asyncio.sleep(0)  # не блокировать команды
+                            # Telegram flood — подождать указанное время
+                            if "Retry in" in err or "Flood" in err:
+                                import re as _re
+                                m2 = _re.search(r"Retry in (\d+)", err)
+                                wait = int(m2.group(1)) if m2 else 60
+                                wait = min(wait, 3600)
+                                log.warning("flood control, sleep %ss", wait)
+                                await asyncio.sleep(wait)
+                        # 1 сообщение раз в SEND_INTERVAL секунд
+                        await asyncio.sleep(settings.send_interval)
 
                     if len(seen) > 8000:
                         seen.clear()
         except Exception as e:
             log.exception(e)
-        await asyncio.sleep(max(5, int(settings.poll_interval)))
+        await asyncio.sleep(max(1, int(settings.poll_interval)))
 
 
 
