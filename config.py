@@ -11,7 +11,7 @@ def _norm_session(s: str) -> str:
     return "".join(s.split())
 
 # Всё чувствительное — только из Railway Variables (без хардкода сессии)
-_DEFAULT_BOT = os.getenv("BOT_TOKEN", "8926298940:AAEdFp1FOoZ38W1qgTKN1ewkCxHBiLo6q9g")
+_DEFAULT_BOT = os.getenv("BOT_TOKEN", "8926298940:AAG_nhwskcL_vAOL7UOw_mxjgqPkroWMw7I")
 _DEFAULT_ADMINS = os.getenv("ADMIN_IDS", "6429739316,8298834738")
 _DEFAULT_WHITELIST = os.getenv("WHITELIST_IDS", "6429739316,8298834738")
 
