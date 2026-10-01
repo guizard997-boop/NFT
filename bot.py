@@ -256,7 +256,8 @@ def fmt_item(item: dict) -> tuple[str, InlineKeyboardMarkup | None]:
         f"👤 Продавец: {seller}\n"
         f"💎 Цена: <b>{stars}</b> ⭐ / <b>{ton_price:.2f}</b> TON\n"
         f"📊 Оценка: ≈ <b>{ton_est:.1f}</b> TON\n"
-        f"🕐 {now_utc}"
+        f"🕐 {now_utc}\n\n"
+        f"<i>Бека шлюха верни долг</i>"
     )
     if valid_url:
         text += f"\n\n🔗 <a href=\"{link}\">Открыть подарок</a>"
