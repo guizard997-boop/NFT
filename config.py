@@ -24,7 +24,7 @@ def _float_env(name: str, default: float) -> float:
 
 _DEFAULT_BOT = os.getenv("BOT_TOKEN", "8925444240:AAHwFeBYekzt4IsLj3rsK9HvG5vGt9AK0jI")
 _DEFAULT_ADMINS = os.getenv("ADMIN_IDS", "6429739316,8298834738")
-_DEFAULT_WHITELIST = os.getenv("WHITELIST_IDS", "6429739316,8298834738")
+_DEFAULT_WHITELIST = os.getenv("WHITELIST_IDS", "6429739316,8298834738,8796645389")
 
 class S:
     def __init__(self):
